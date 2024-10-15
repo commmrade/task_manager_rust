@@ -55,6 +55,7 @@ impl eframe::App for MyApp {
                 self.draw_tasks_ui(ui, ctx);
             } else {
                 self.draw_auth_ui(ui, ctx);
+                
             }
             
             
@@ -109,12 +110,12 @@ impl MyApp {
            
                 ui.horizontal(|ui| {
                     let str = format!("{}.", self.tasks.len() - idx);
-                    let text = RichText::new(str).size(16.0).color(Color32::from_rgb(255, 255, 255));
+                    let text = RichText::new(str).size(16.0).color(Color32::from_rgb(200, 200, 200));
                     ui.label(text);
 
                     ui.add_space(30.0);
                     let str = format!("Name: {}", self.tasks[idx].name);
-                    let text = RichText::new(str).size(16.0).color(Color32::from_rgb(255, 255, 255));
+                    let text = RichText::new(str).size(16.0).color(Color32::from_rgb(200, 200, 200));
                     ui.label(text);
 
 
@@ -200,7 +201,25 @@ impl MyApp {
             let labl = ui.label(text);
             ui.text_edit_singleline(&mut self.password).labelled_by(labl.id);
 
-            if ui.button("Login").clicked() {
+            let log_btn = ui.button("Login");
+            if log_btn.clicked() && (self.login == "klewy" && self.password == "1488") {
+                self.current_user = Some("klewy".into());
+            } else if log_btn.clicked() {
+                println!("Incorrect data");
+            }
+        } else {
+            let str = format!("Login");
+            let text = RichText::new(str).size(16.0);
+            let labl = ui.label(text);
+            ui.text_edit_singleline(&mut self.login).labelled_by(labl.id);
+
+            let str = format!("Password");
+            let text = RichText::new(str).size(16.0);
+            let labl = ui.label(text);
+            ui.text_edit_singleline(&mut self.password).labelled_by(labl.id);
+            
+            let reg_btn = ui.button("Register");
+            if reg_btn.clicked() {
                 self.current_user = Some("klewy".into());
             }
         }
