@@ -4,11 +4,13 @@ use axum::{extract::{rejection::QueryRejection, Query}, http::StatusCode, routin
 use serde::{Deserialize, Serialize};
 
 #[derive(Deserialize, Serialize)]
-struct QUser {
+struct AuthData {
     name: String,
-    age: u32
+    password: String
 }
-
+struct Resp {
+    token: String
+}
 
 struct AppState {
     
@@ -25,8 +27,7 @@ async fn main() {
 
     let app_state = Arc::new(AppState::default());
     let app = Router::new()
-    .route("/welcome", get(welcome))
-    .route("/login", post(login))
+    .route("/login", get(login))
     .with_state(app_state);
 
     let listener = tokio::net::TcpListener::bind("0.0.0.0:3000").await.unwrap();
@@ -34,20 +35,25 @@ async fn main() {
     axum::serve(listener, app).await.unwrap();
 }
 
+//To auth module
+async fn login(result : Result<Query<AuthData>, QueryRejection>) -> Result<(), (StatusCode, String)> {
 
-async fn welcome(result : Result<Query<QUser>, QueryRejection>) -> Result<(), (StatusCode, String)> {
     match result {
         Ok(Query(result)) => {
-            todo!();
+            println!("{} {}", result.name, result.password);
+            if result.name == "klewy" && result.password == "1488" {
+                return Ok(())
+            } else {
+                return Err((StatusCode::BAD_REQUEST, "Wrong login/password".to_string()))
+            }
         }
         Err(_) => {
-            return Err((StatusCode::BAD_GATEWAY, "Error".to_string()))
+            println!("Error, wrong data");
+            return Err((StatusCode::BAD_REQUEST, "".to_string()));
         }
     }
 }
-
-async fn login(result : Result<Query<QUser>, QueryRejection>) -> Result<(), (StatusCode, String)> {
-
-    todo!("Implemnt test login klewy 1488");
+async fn register(result : Result<Query<AuthData>, QueryRejection>) -> Result<(), (StatusCode, String)> {
+    todo!()
 }
 
