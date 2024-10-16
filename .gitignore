@@ -1,2 +1,4 @@
 frontend/target
 backend/target
+backend/Cargo.lock
+frontend/Cargo.lock
