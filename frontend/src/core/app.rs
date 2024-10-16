@@ -74,6 +74,7 @@ impl MyApp {
     }
     fn add_task(&mut self, name: String) {
         self.tasks.push(Task { name: name, status: TaskStatus::NotCompleted });
+        
     }
     
     fn handle_input(&mut self, ui : &mut Ui, ctx: &eframe::egui::Context) {
@@ -114,6 +115,7 @@ impl MyApp {
                     ui.label(text);
 
                     ui.add_space(30.0);
+
                     let str = format!("Name: {}", self.tasks[idx].name);
                     let text = RichText::new(str).size(16.0).color(Color32::from_rgb(200, 200, 200));
                     ui.label(text);
@@ -121,20 +123,20 @@ impl MyApp {
 
                     
                     ui.add_space(40.0);
+
                     egui::ComboBox::from_id_salt(idx.to_string()).selected_text(self.tasks[idx].status.to_string()).show_ui(ui, |ui| {
                         ui.selectable_value(&mut self.tasks[idx].status, TaskStatus::Completed, "Completed");
                         ui.selectable_value(&mut self.tasks[idx].status, TaskStatus::InProgress, "In progress");
-                        ui.selectable_value(&mut self.tasks[idx].status, TaskStatus::NotCompleted, "Not done");
+                        ui.selectable_value(&mut self.tasks[idx].status, TaskStatus::NotCompleted, "Not completed");
                         
                     });
                     //println!("{}", self.tasks[idx].status.to_string());
 
                    
                     ui.add_space(30.0);
+
                     if ui.button("X").clicked() {
-                        //println!("{}", idx);
                         self.remove_task(idx);   
-                        
                     }
                 });
                 ui.separator();
@@ -145,7 +147,7 @@ impl MyApp {
     }
     fn draw_tasks_ui(&mut self, ui : &mut Ui, ctx: &eframe::egui::Context) {
         //Heading
-        let str = "TODOLISt gud".to_string();
+        let str = "TODOLIST".to_string();
         let text = RichText::new(str).size(35.0);
         ui.heading(text);
         ui.add_space(30.0);
@@ -202,7 +204,7 @@ impl MyApp {
             ui.text_edit_singleline(&mut self.password).labelled_by(labl.id);
 
             let log_btn = ui.button("Login");
-            if log_btn.clicked() && (self.login == "klewy" && self.password == "1488") {
+            if log_btn.clicked() && (self.login == "" && self.password == "") {
                 self.current_user = Some("klewy".into());
             } else if log_btn.clicked() {
                 println!("Incorrect data");
