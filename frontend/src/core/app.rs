@@ -48,6 +48,7 @@ impl Default for MyApp {
         blogin: true }
     }
 }
+
 impl eframe::App for MyApp {
     fn update(&mut self, ctx: &eframe::egui::Context, frame: &mut eframe::Frame) {
         egui::CentralPanel::default().show(ctx, |ui| {
