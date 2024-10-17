@@ -1,3 +1,5 @@
+use std::collections::{HashMap, HashSet};
+
 use egui::{Color32, ComboBox, RichText, Ui};
 use serde::{Deserialize, Serialize};
 
@@ -66,7 +68,28 @@ impl eframe::App for MyApp {
     }
 }
 
+async fn login_user(login : String, password : String) -> Result<(), Box<dyn std::error::Error>> {
+    let client = reqwest::Client::new();
 
+    let url = "http://localhost:3000/login";
+    let mut query_params = HashMap::new();
+    query_params.insert("name", login);
+    query_params.insert("password", password);
+
+    let response = client.get(url).query(&query_params).send().await?;
+
+
+    if response.status().is_success() {
+        return Ok(())
+    } else {
+        return Err("Err".into());
+    }
+
+
+
+    Ok(())
+
+}
 
 
 impl MyApp {
@@ -206,7 +229,11 @@ impl MyApp {
 
             let log_btn = ui.button("Login");
             if log_btn.clicked() && (self.login == "" && self.password == "") {
-                self.current_user = Some("klewy".into());
+                //LOGIN LOGC
+
+
+
+
             } else if log_btn.clicked() {
                 println!("Incorrect data");
             }
@@ -223,7 +250,7 @@ impl MyApp {
             
             let reg_btn = ui.button("Register");
             if reg_btn.clicked() {
-                self.current_user = Some("klewy".into());
+                //REG LOGIC
             }
         }
 
