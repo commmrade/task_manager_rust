@@ -85,10 +85,6 @@ async fn login_user(login : String, password : String) -> Result<(), Box<dyn std
         return Err("Err".into());
     }
 
-
-
-    Ok(())
-
 }
 
 
@@ -228,10 +224,17 @@ impl MyApp {
             ui.text_edit_singleline(&mut self.password).labelled_by(labl.id);
 
             let log_btn = ui.button("Login");
-            if log_btn.clicked() && (self.login == "" && self.password == "") {
+            if log_btn.clicked() {
                 //LOGIN LOGC
-
-
+                let rt = tokio::runtime::Runtime::new().unwrap();
+                match rt.block_on(login_user(self.login.clone(), self.password.clone())) {
+                    Ok(()) => {
+                        self.current_user = Some(self.login.clone());
+                    }
+                    Err(_) => {
+                        println!("Try again");
+                    }                    
+                }
 
 
             } else if log_btn.clicked() {
