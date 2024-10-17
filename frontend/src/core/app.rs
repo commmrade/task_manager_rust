@@ -254,6 +254,16 @@ impl MyApp {
             let reg_btn = ui.button("Register");
             if reg_btn.clicked() {
                 //REG LOGIC
+
+                let rt = tokio::runtime::Runtime::new().unwrap();
+                match rt.block_on(login_user(self.login.clone(), self.password.clone())) {
+                    Ok(()) => {
+                        self.current_user = Some(self.login.clone());
+                    }
+                    Err(_) => {
+                        println!("Try again");
+                    }                    
+                }
             }
         }
 

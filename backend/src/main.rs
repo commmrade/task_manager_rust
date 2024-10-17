@@ -60,7 +60,11 @@ async fn register(result : Result<Query<AuthData>, QueryRejection>) -> Result<Js
     match result {
         Ok(Query(result)) => {
             println!("{}, {}", result.name, result.password);
-            Ok(Json(Resp { token: "".to_string() }))
+            if true && (!result.name.is_empty() && !result.password.is_empty()) {
+                Ok(Json(Resp { token: "".to_string() }))
+            } else {
+                Err((StatusCode::BAD_REQUEST, "Wrong credentials".into()))
+            }
         }
         Err(_) => {
             println!("Incorrect data");
