@@ -1,4 +1,4 @@
-use std::sync::Arc;
+use std::{result, sync::Arc};
 
 use axum::{extract::{rejection::QueryRejection, Query}, http::StatusCode, routing::{get, post}, Json, Router};
 use serde::{Deserialize, Serialize};
@@ -8,6 +8,8 @@ struct AuthData {
     name: String,
     password: String
 }
+
+#[derive(Deserialize, Serialize)]
 struct Resp {
     token: String
 }
@@ -28,6 +30,7 @@ async fn main() {
     let app_state = Arc::new(AppState::default());
     let app = Router::new()
     .route("/login", get(login))
+    .route("/register", post(register))
     .with_state(app_state);
 
     let listener = tokio::net::TcpListener::bind("0.0.0.0:3000").await.unwrap();
@@ -35,25 +38,30 @@ async fn main() {
     axum::serve(listener, app).await.unwrap();
 }
 
-//To auth module
-async fn login(result : Result<Query<AuthData>, QueryRejection>) -> Result<(), (StatusCode, String)> {
+//To auth module todo: 
+async fn login(result : Result<Query<AuthData>, QueryRejection>) -> Result<Json<Resp>, (StatusCode, String)> {
 
     match result {
         Ok(Query(result)) => {
             println!("{} {}", result.name, result.password);
-            if result.name == "klewy" && result.password == "1488" {
-                return Ok(())
-            } else {
-                return Err((StatusCode::BAD_REQUEST, "Wrong login/password".to_string()))
-            }
+            Ok(Json(Resp { token: "".to_string() }))
         }
         Err(_) => {
             println!("Error, wrong data");
-            return Err((StatusCode::BAD_REQUEST, "".to_string()));
+            Err((StatusCode::BAD_REQUEST, "".to_string()))
         }
     }
 }
-async fn register(result : Result<Query<AuthData>, QueryRejection>) -> Result<(), (StatusCode, String)> {
-    todo!()
+async fn register(result : Result<Query<AuthData>, QueryRejection>) -> Result<Json<Resp>, (StatusCode, String)> {
+    match result {
+        Ok(Query(result)) => {
+            println!("{}, {}", result.name, result.password);
+            Ok(Json(Resp { token: "".to_string() }))
+        }
+        Err(_) => {
+            println!("Incorrect data");
+            Err((StatusCode::BAD_REQUEST, "".to_string()))
+        }
+    }
 }
 
