@@ -1,7 +1,12 @@
 use std::{result, sync::Arc};
 
+mod handlers;
 use axum::{extract::{rejection::QueryRejection, Query}, http::StatusCode, routing::{get, post}, Json, Router};
+use handlers::database;
 use serde::{Deserialize, Serialize};
+
+
+
 
 #[derive(Deserialize, Serialize)]
 struct AuthData {
@@ -34,7 +39,7 @@ async fn main() {
     .with_state(app_state);
 
     let listener = tokio::net::TcpListener::bind("0.0.0.0:3000").await.unwrap();
-
+    
     axum::serve(listener, app).await.unwrap();
 }
 

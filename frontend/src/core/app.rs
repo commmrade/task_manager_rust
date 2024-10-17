@@ -1,7 +1,8 @@
-use std::collections::{HashMap, HashSet};
+use std::{collections::{HashMap, HashSet}, thread, time::Duration};
 
 use egui::{Color32, ComboBox, RichText, Ui};
 use serde::{Deserialize, Serialize};
+use tokio::runtime::Runtime;
 
 use super::json_handler;
 
@@ -38,7 +39,8 @@ pub struct MyApp {
     blogin : bool,
     password : String,
     exit_window : bool,
-    input_text: String
+    input_text: String,
+    rt : Runtime
 }
 
 
@@ -47,7 +49,7 @@ impl Default for MyApp {
         MyApp {tasks: vec![], can_exit: false, exit_window: false, 
         input_text: String::new(), current_user: None,
         token: String::new(), login : String::new(), password: String::new(),
-        blogin: true }
+        blogin: true, rt: Runtime::new().unwrap() }
     }
 }
 
@@ -61,8 +63,12 @@ impl eframe::App for MyApp {
                 
             }
             
-            
-
+            //let rt = Runtime::new().unwrap();
+            // let lgn = self.login.clone();
+            // self.rt.spawn(async move {
+            //     tokio::time::sleep(Duration::new(2, 0)).await;
+            //     println!("{}", lgn);
+            // }); 
             
         });
     }
