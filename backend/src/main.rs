@@ -1,9 +1,10 @@
 use std::{result, sync::Arc};
 
 mod handlers;
-use axum::{extract::{rejection::QueryRejection, Query}, http::StatusCode, routing::{get, post}, Json, Router};
-use handlers::database;
+use axum::{extract::{rejection::QueryRejection, Query, State}, http::StatusCode, routing::{get, post}, Json, Router};
+use handlers::database::{self, Db};
 use serde::{Deserialize, Serialize};
+use tokio::runtime::Runtime;
 
 
 
@@ -20,36 +21,45 @@ struct Resp {
 }
 
 struct AppState {
-    
+   db : Arc<Db>
 }
 impl Default for AppState {
     fn default() -> Self {
-        return Self{}
+        let rt = Runtime::new().unwrap();
+        let db = Arc::new(rt.block_on(Db::new("mysqy://klewy:root@localhost/clicker".to_string())).unwrap());
+        return Self{db}
+    }
+}
+impl AppState {
+    async fn new(url : String) -> Self {
+        Self { db: Arc::new(Db::new(url).await.unwrap()) }
     }
 }
 
 #[tokio::main]
 async fn main() {
     println!("hello world");
-
-    let app_state = Arc::new(AppState::default());
-    let app = Router::new()
+    //let db = Db::new("kdsjdsdjs".to_string());
+    let app_state = Arc::new(AppState::new("mysqy://klewy:root@localhost/clicker".to_string()).await);
+    let app : Router<()> = Router::new()
     .route("/login", get(login))
     .route("/register", post(register))
     .with_state(app_state);
+ 
 
     let listener = tokio::net::TcpListener::bind("0.0.0.0:3000").await.unwrap();
     
     axum::serve(listener, app).await.unwrap();
 }
 
-//To auth module todo: 
-async fn login(result : Result<Query<AuthData>, QueryRejection>) -> Result<Json<Resp>, (StatusCode, String)> {
+
+async fn login(State(appstate) : State<Arc<AppState>>, result : Result<Query<AuthData>, QueryRejection>) -> Result<Json<Resp>, (StatusCode, String)> {
 
     match result {
         Ok(Query(result)) => {
             println!("{} {}", result.name, result.password);
             if true && (!result.name.is_empty() && !result.password.is_empty()) {
+                appstate.db.print();
                 Ok(Json(Resp { token: "".to_string() }))
             } else {
                 Err((StatusCode::BAD_REQUEST, "Wrong credentials".into()))
