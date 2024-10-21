@@ -54,6 +54,7 @@ impl Default for MyApp {
 }
 
 impl eframe::App for MyApp {
+    
     fn update(&mut self, ctx: &eframe::egui::Context, frame: &mut eframe::Frame) {
         egui::CentralPanel::default().show(ctx, |ui| {
             if self.current_user.is_some() {
@@ -235,6 +236,7 @@ impl MyApp {
                 let rt = tokio::runtime::Runtime::new().unwrap();
                 match rt.block_on(login_user(self.login.clone(), self.password.clone())) {
                     Ok(()) => {
+                        println!("load all tasks");
                         self.current_user = Some(self.login.clone());
                     }
                     Err(_) => {
