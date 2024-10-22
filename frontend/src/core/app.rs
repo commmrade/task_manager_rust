@@ -88,10 +88,36 @@ async fn login_user(login : String, password : String) -> Result<(), Box<dyn std
 
     if response.status().is_success() {
         return Ok(())
+    } else if response.status().as_u16() == 204 {
+        return Err("204".into());
+    } else if response.status().as_u16() == 400 {
+        return Err("400".into());
     } else {
-        return Err("Err".into());
+        return Err("0".into())
     }
 
+}
+
+async fn register_user(login : String, password : String) -> Result<(), Box<dyn std::error::Error>> {
+    let client = reqwest::Client::new();
+
+    let url = "http://localhost:3000/register";
+    let mut query_params = HashMap::new();
+    query_params.insert("name", login);
+    query_params.insert("password", password);
+
+    let response = client.post(url).query(&query_params).send().await?;
+
+
+    if response.status().is_success() {
+        return Ok(())
+    } else if response.status().as_u16() == 204 {
+        return Err("204".into());
+    } else if response.status().as_u16() == 400 {
+        return Err("400".into());
+    } else {
+        return Err("0".into())
+    }
 }
 
 
@@ -239,14 +265,22 @@ impl MyApp {
                         println!("load all tasks");
                         self.current_user = Some(self.login.clone());
                     }
-                    Err(_) => {
-                        println!("Try again");
+                    Err(err) => {
+                        match err.to_string().as_str() {
+                            "204" => {
+                                println!("Incorrect data for request");
+                            }
+                            "400" => {
+                                println!("Wrong credentials")
+                            }
+                            _ => {
+                                println!("Server is dead");
+                            }
+                        }
                     }                    
                 }
 
 
-            } else if log_btn.clicked() {
-                println!("Incorrect data");
             }
         } else {
             let str = format!("Login");
@@ -264,12 +298,23 @@ impl MyApp {
                 //REG LOGIC
 
                 let rt = tokio::runtime::Runtime::new().unwrap();
-                match rt.block_on(login_user(self.login.clone(), self.password.clone())) {
+                match rt.block_on(register_user(self.login.clone(), self.password.clone())) {
                     Ok(()) => {
+                        println!("load all tasks");
                         self.current_user = Some(self.login.clone());
                     }
-                    Err(_) => {
-                        println!("Try again");
+                    Err(err) => {
+                        match err.to_string().as_str() {
+                            "204" => {
+                                println!("Incorrect data for request");
+                            }
+                            "400" => {
+                                println!("Wrong credentials")
+                            }
+                            _ => {
+                                println!("Server is dead");
+                            }
+                        }
                     }                    
                 }
             }

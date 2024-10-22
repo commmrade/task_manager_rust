@@ -40,7 +40,7 @@ impl AppState {
 async fn main() {
     println!("hello world");
     //let db = Db::new("kdsjdsdjs".to_string());
-    let app_state = Arc::new(AppState::new("mysqy://klewy:root@localhost/clicker".to_string()).await);
+    let app_state = Arc::new(AppState::new("mysql://klewy:root@localhost/task_manager".to_string()).await);
     let app : Router<()> = Router::new()
     .route("/login", get(login))
     .route("/register", post(register))
@@ -58,32 +58,47 @@ async fn login(State(appstate) : State<Arc<AppState>>, result : Result<Query<Aut
     match result {
         Ok(Query(result)) => {
             println!("{} {}", result.name, result.password);
-            if true && (!result.name.is_empty() && !result.password.is_empty()) {
-                appstate.db.print();
-                Ok(Json(Resp { token: "".to_string() }))
-            } else {
-                Err((StatusCode::BAD_REQUEST, "Wrong credentials".into()))
+            match appstate.db.login_user(result.name, result.password).await {
+                Ok(()) => {
+                    println!("Successful login");
+                    return Ok(Json(Resp { token: "".to_string() }))
+                }
+                Err(why) => {
+                    return Err((StatusCode::BAD_REQUEST, "".to_string()))
+                }
             }
         }
         Err(_) => {
             println!("Error, wrong data");
-            Err((StatusCode::BAD_REQUEST, "".to_string()))
+            Err((StatusCode::NO_CONTENT, "".to_string()))
         }
     }
 }
-async fn register(result : Result<Query<AuthData>, QueryRejection>) -> Result<Json<Resp>, (StatusCode, String)> {
+async fn register(State(appstate) : State<Arc<AppState>>, result : Result<Query<AuthData>, QueryRejection>) -> Result<Json<Resp>, (StatusCode, String)> {
     match result {
         Ok(Query(result)) => {
-            println!("{}, {}", result.name, result.password);
-            if true && (!result.name.is_empty() && !result.password.is_empty()) {
-                Ok(Json(Resp { token: "".to_string() }))
+            //println!("{}, {}", result.name, result.password);
+            if !result.name.is_empty() && !result.password.is_empty() {
+                
+                match appstate.db.add_user(result.name, result.password).await {
+                    Ok(()) => {
+                        println!("DSJJDJAJJ");
+                        Ok(Json(Resp { token: "".to_string() }))
+                    }
+                    Err(why) => {
+                        println!("{}", why);
+                        return Err((StatusCode::BAD_REQUEST, "Wrong credentials".into()))
+                    }
+                }
+
+                
             } else {
                 Err((StatusCode::BAD_REQUEST, "Wrong credentials".into()))
             }
         }
         Err(_) => {
             println!("Incorrect data");
-            Err((StatusCode::BAD_REQUEST, "".to_string()))
+            Err((StatusCode::NO_CONTENT, "".to_string()))
         }
     }
 }
