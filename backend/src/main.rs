@@ -10,9 +10,16 @@ use tokio::runtime::Runtime;
 
 
 #[derive(Deserialize, Serialize)]
-struct AuthData {
+struct LoginData {
     name: String,
     password: String
+}
+
+#[derive(Deserialize, Serialize)]
+struct RegData {
+    name: String,
+    password: String,
+    email : String
 }
 
 #[derive(Deserialize, Serialize)]
@@ -23,13 +30,6 @@ struct Resp {
 struct AppState {
    db : Arc<Db>
 }
-impl Default for AppState {
-    fn default() -> Self {
-        let rt = Runtime::new().unwrap();
-        let db = Arc::new(rt.block_on(Db::new("mysqy://klewy:root@localhost/clicker".to_string())).unwrap());
-        return Self{db}
-    }
-}
 impl AppState {
     async fn new(url : String) -> Self {
         Self { db: Arc::new(Db::new(url).await.unwrap()) }
@@ -39,7 +39,6 @@ impl AppState {
 #[tokio::main]
 async fn main() {
     println!("hello world");
-    //let db = Db::new("kdsjdsdjs".to_string());
     let app_state = Arc::new(AppState::new("mysql://klewy:root@localhost/task_manager".to_string()).await);
     let app : Router<()> = Router::new()
     .route("/login", get(login))
@@ -53,17 +52,18 @@ async fn main() {
 }
 
 
-async fn login(State(appstate) : State<Arc<AppState>>, result : Result<Query<AuthData>, QueryRejection>) -> Result<Json<Resp>, (StatusCode, String)> {
+async fn login(State(appstate) : State<Arc<AppState>>, result : Result<Query<LoginData>, QueryRejection>) -> Result<Json<Resp>, (StatusCode, String)> {
 
     match result {
         Ok(Query(result)) => {
-            println!("{} {}", result.name, result.password);
+        
             match appstate.db.login_user(result.name, result.password).await {
                 Ok(()) => {
                     println!("Successful login");
-                    return Ok(Json(Resp { token: "".to_string() }))
+                    return Ok(Json(Resp { token: "1488".to_string() }))
                 }
                 Err(why) => {
+                    println!("Login error: {}", why);
                     return Err((StatusCode::BAD_REQUEST, "".to_string()))
                 }
             }
@@ -74,23 +74,21 @@ async fn login(State(appstate) : State<Arc<AppState>>, result : Result<Query<Aut
         }
     }
 }
-async fn register(State(appstate) : State<Arc<AppState>>, result : Result<Query<AuthData>, QueryRejection>) -> Result<Json<Resp>, (StatusCode, String)> {
+async fn register(State(appstate) : State<Arc<AppState>>, result : Result<Query<RegData>, QueryRejection>) -> Result<Json<Resp>, (StatusCode, String)> {
     match result {
         Ok(Query(result)) => {
-            //println!("{}, {}", result.name, result.password);
             if !result.name.is_empty() && !result.password.is_empty() {
                 
-                match appstate.db.add_user(result.name, result.password).await {
+                match appstate.db.add_user(result.name, result.password, result.email).await {
                     Ok(()) => {
-                        println!("DSJJDJAJJ");
-                        Ok(Json(Resp { token: "".to_string() }))
+                       
+                        Ok(Json(Resp { token: "1488".to_string() }))
                     }
                     Err(why) => {
-                        println!("{}", why);
+                        println!("Register error: {}", why);
                         return Err((StatusCode::BAD_REQUEST, "Wrong credentials".into()))
                     }
                 }
-
                 
             } else {
                 Err((StatusCode::BAD_REQUEST, "Wrong credentials".into()))

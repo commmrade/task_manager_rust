@@ -38,6 +38,7 @@ pub struct MyApp {
     login : String,
     blogin : bool,
     password : String,
+    email : String,
     exit_window : bool,
     input_text: String,
     rt : Runtime
@@ -49,12 +50,15 @@ impl Default for MyApp {
         MyApp {tasks: vec![], can_exit: false, exit_window: false, 
         input_text: String::new(), current_user: None,
         token: String::new(), login : String::new(), password: String::new(),
-        blogin: true, rt: Runtime::new().unwrap() }
+        blogin: true, rt: Runtime::new().unwrap(), email: String::new() }
     }
 }
 
 impl eframe::App for MyApp {
-    
+    fn on_exit(&mut self, _gl: Option<&eframe::glow::Context>) {
+        println!("SAVING TASKS TO USER {}", self.login);
+    }
+
     fn update(&mut self, ctx: &eframe::egui::Context, frame: &mut eframe::Frame) {
         egui::CentralPanel::default().show(ctx, |ui| {
             if self.current_user.is_some() {
@@ -89,22 +93,26 @@ async fn login_user(login : String, password : String) -> Result<(), Box<dyn std
     if response.status().is_success() {
         return Ok(())
     } else if response.status().as_u16() == 204 {
+        //To handle incorrect data sent
         return Err("204".into());
     } else if response.status().as_u16() == 400 {
+        //Handle wrong creds sent
         return Err("400".into());
     } else {
+        //Other kinda errors if they magically appear
         return Err("0".into())
     }
 
 }
 
-async fn register_user(login : String, password : String) -> Result<(), Box<dyn std::error::Error>> {
+async fn register_user(login : String, password : String, email : String) -> Result<(), Box<dyn std::error::Error>> {
     let client = reqwest::Client::new();
 
     let url = "http://localhost:3000/register";
     let mut query_params = HashMap::new();
     query_params.insert("name", login);
     query_params.insert("password", password);
+    query_params.insert("email", email);
 
     let response = client.post(url).query(&query_params).send().await?;
 
@@ -112,10 +120,13 @@ async fn register_user(login : String, password : String) -> Result<(), Box<dyn 
     if response.status().is_success() {
         return Ok(())
     } else if response.status().as_u16() == 204 {
+        //To handle incorrect data sent
         return Err("204".into());
     } else if response.status().as_u16() == 400 {
+        //Handle wrong creds sent
         return Err("400".into());
     } else {
+         //Other kinda errors if they magically appear
         return Err("0".into())
     }
 }
@@ -131,6 +142,8 @@ impl MyApp {
     }
     
     fn handle_input(&mut self, ui : &mut Ui, ctx: &eframe::egui::Context) {
+
+        //Confirm window exit
         if ui.input(|i| i.viewport().close_requested()) {
             if self.can_exit {
 
@@ -140,10 +153,22 @@ impl MyApp {
             }
         }
     }
+
+    fn load_tasks(&mut self) {
+        let usrname = self.login.clone();
+        println!("Username to load tasks: {}", &usrname);
+    }
+
+
     fn confirm_exit_win(&mut self, ui : &mut Ui, ctx: &eframe::egui::Context) {
         if self.exit_window {
-            egui::Window::new("Confirm exit").collapsible(false).resizable(false).current_pos([ui.available_width() / 2.0, ui.available_height() / 2.0]).show(ctx, |ui| {
+            egui::Window::new("Confirm exit")
+            .collapsible(false)
+            .resizable(false)
+            .current_pos([ui.available_width() / 2.0, ui.available_height() / 2.0])
+            .show(ctx, |ui| {
                 ui.horizontal(|ui| {
+
                     ui.separator();
                     if ui.button("Close").clicked() {
                         self.exit_window = false;
@@ -154,6 +179,7 @@ impl MyApp {
                         self.exit_window = false;
                     }
                     ui.separator();
+
                 });
             });
         }
@@ -183,8 +209,6 @@ impl MyApp {
                         ui.selectable_value(&mut self.tasks[idx].status, TaskStatus::NotCompleted, "Not completed");
                         
                     });
-                    //println!("{}", self.tasks[idx].status.to_string());
-
                    
                     ui.add_space(30.0);
 
@@ -222,7 +246,6 @@ impl MyApp {
         //Input handling
         self.handle_input(ui, ctx);
 
-
         //Confirm exit window
         self.confirm_exit_win(ui, ctx);
        
@@ -235,7 +258,7 @@ impl MyApp {
     }
     fn draw_auth_ui(&mut self, ui : &mut Ui, ctx: &eframe::egui::Context) {
         let str = format!("Please authorize");
-        let text = RichText::new(str).size(16.0);
+        let text: RichText = RichText::new(str).size(16.0);
         ui.label(text);
 
 
@@ -262,7 +285,10 @@ impl MyApp {
                 let rt = tokio::runtime::Runtime::new().unwrap();
                 match rt.block_on(login_user(self.login.clone(), self.password.clone())) {
                     Ok(()) => {
+
                         println!("load all tasks");
+                        self.load_tasks();
+
                         self.current_user = Some(self.login.clone());
                     }
                     Err(err) => {
@@ -283,6 +309,11 @@ impl MyApp {
 
             }
         } else {
+            let str = format!("Email");
+            let text = RichText::new(str).size(16.0);
+            let labl = ui.label(text);
+            ui.text_edit_singleline(&mut self.email).labelled_by(labl.id);
+
             let str = format!("Login");
             let text = RichText::new(str).size(16.0);
             let labl = ui.label(text);
@@ -292,18 +323,23 @@ impl MyApp {
             let text = RichText::new(str).size(16.0);
             let labl = ui.label(text);
             ui.text_edit_singleline(&mut self.password).labelled_by(labl.id);
+
+            
             
             let reg_btn = ui.button("Register");
             if reg_btn.clicked() {
                 //REG LOGIC
 
                 let rt = tokio::runtime::Runtime::new().unwrap();
-                match rt.block_on(register_user(self.login.clone(), self.password.clone())) {
+                match rt.block_on(register_user(self.login.clone(), self.password.clone(), self.email.clone())) {
                     Ok(()) => {
-                        println!("load all tasks");
+                        self.load_tasks();
+                 
+
                         self.current_user = Some(self.login.clone());
                     }
                     Err(err) => {
+                        println!("{}", err.to_string());
                         match err.to_string().as_str() {
                             "204" => {
                                 println!("Incorrect data for request");
@@ -315,6 +351,7 @@ impl MyApp {
                                 println!("Server is dead");
                             }
                         }
+                        
                     }                    
                 }
             }
