@@ -59,20 +59,20 @@ pub struct MyApp {
 impl Default for MyApp {
     fn default() -> Self {
 
-        let app = MyApp {tasks: vec![], can_exit: false, exit_window: false, 
+        let mut app = MyApp {tasks: vec![], can_exit: false, exit_window: false, 
         input_text: String::new(), current_user: None,
         token: String::new(), login : String::new(), password: String::new(),
         blogin: true, rt: Runtime::new().unwrap(), email: String::new() };
 
 
-
+        app
     }
 }
 
 impl eframe::App for MyApp {
 
     fn on_exit(&mut self, _gl: Option<&eframe::glow::Context>) {
-        println!("SAVING TASKS TO USER {}", self.login);
+        println!("Exiting app... {}", self.login);
     }
 
     fn update(&mut self, ctx: &eframe::egui::Context, frame: &mut eframe::Frame) {
@@ -349,9 +349,13 @@ impl MyApp {
             query_maps.insert("username", self.current_user.clone().unwrap());
 
             let response = client.get(url).query(&query_maps).send().await.unwrap();
-            
+            println!("loading...");
             if response.status().is_success() {
-                self.tasks.push(Task { name: "sadkadks".to_string(), status: TaskStatus::Completed });
+                let txt = response.text().await.unwrap();
+                let tsks : Vec<Task> = serde_json::from_str(&txt).unwrap();
+                self.tasks.extend(tsks);
+
+
             } else if response.status().as_u16() == 204 {
               
             } else if response.status().as_u16() == 400 {
@@ -495,11 +499,11 @@ impl MyApp {
                 let rt = tokio::runtime::Runtime::new().unwrap();
                 match rt.block_on(login_user(self.login.clone(), self.password.clone())) {
                     Ok(()) => {
-
+                        self.current_user = Some(self.login.clone());
                         println!("load all tasks");
                         self.load_tasks();
 
-                        self.current_user = Some(self.login.clone());
+                        
                     }
                     Err(err) => {
                         match err.to_string().as_str() {
@@ -543,10 +547,9 @@ impl MyApp {
                 let rt = tokio::runtime::Runtime::new().unwrap();
                 match rt.block_on(register_user(self.login.clone(), self.password.clone(), self.email.clone())) {
                     Ok(()) => {
+                        self.current_user = Some(self.login.clone());
                         self.load_tasks();
                  
-
-                        self.current_user = Some(self.login.clone());
                     }
                     Err(err) => {
                         println!("{}", err.to_string());
