@@ -1,4 +1,4 @@
-use std::{collections::{HashMap, HashSet}, thread, time::Duration};
+use std::{clone, collections::{HashMap, HashSet}, str::FromStr, thread, time::Duration};
 
 use egui::{Color32, ComboBox, RichText, Ui};
 use serde::{Deserialize, Serialize};
@@ -7,7 +7,7 @@ use tokio::runtime::Runtime;
 use super::json_handler;
 
 
-#[derive(Serialize, Deserialize, PartialEq)]
+#[derive(Serialize, Deserialize, PartialEq, Clone)]
 enum TaskStatus {
     Completed,
     NotCompleted,
@@ -20,6 +20,17 @@ impl ToString for TaskStatus {
             Self::Completed => "Completed".to_string(),
             Self::NotCompleted => "Not Completed".to_string(),
             Self::InProgress => "In Progress".to_string()
+        }
+    }
+}
+impl FromStr for TaskStatus {
+    type Err = String;
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s {
+            "Not Completed" => Ok(TaskStatus::NotCompleted),
+            "In Progress" => Ok(TaskStatus::InProgress),
+            "Completed" => Ok(TaskStatus::Completed),
+            _ => Err("Not a valid enum".into())
         }
     }
 }
@@ -47,14 +58,19 @@ pub struct MyApp {
 
 impl Default for MyApp {
     fn default() -> Self {
-        MyApp {tasks: vec![], can_exit: false, exit_window: false, 
+
+        let app = MyApp {tasks: vec![], can_exit: false, exit_window: false, 
         input_text: String::new(), current_user: None,
         token: String::new(), login : String::new(), password: String::new(),
-        blogin: true, rt: Runtime::new().unwrap(), email: String::new() }
+        blogin: true, rt: Runtime::new().unwrap(), email: String::new() };
+
+
+
     }
 }
 
 impl eframe::App for MyApp {
+
     fn on_exit(&mut self, _gl: Option<&eframe::glow::Context>) {
         println!("SAVING TASKS TO USER {}", self.login);
     }
@@ -130,14 +146,181 @@ async fn register_user(login : String, password : String, email : String) -> Res
         return Err("0".into())
     }
 }
+async fn add_task_backend(username : String, title : String) -> Result<(), Box<dyn std::error::Error>> {
+    let client = reqwest::Client::new();
+
+
+    let url = "http://localhost:3000/taskadd";
+    let mut query_params = HashMap::new();
+    query_params.insert("username", username);
+    query_params.insert("title", title);
+    
+
+    let response = client.post(url).query(&query_params).send().await?;
+
+    if response.status().is_success() {
+        return Ok(())
+    } else if response.status().as_u16() == 204 {
+        //To handle incorrect data sent
+        return Err("204".into());
+    } else if response.status().as_u16() == 400 {
+        //Handle wrong creds sent
+        return Err("400".into());
+    } else {
+         //Other kinda errors if they magically appear
+        return Err("0".into())
+    }
+}
+async fn remove_task_backend(username : String, title : String) -> Result<(), Box<dyn std::error::Error>> {
+    let client = reqwest::Client::new();
+
+    let url = "http://localhost:3000/taskremove";
+    let mut query_params = HashMap::new();
+    query_params.insert("username", username);
+    query_params.insert("title", title);
+
+    let response = client.post(url).query(&query_params).send().await?;
+
+    if response.status().is_success() {
+        return Ok(())
+    } else if response.status().as_u16() == 204 {
+        //To handle incorrect data sent
+        return Err("204".into());
+    } else if response.status().as_u16() == 400 {
+        //Handle wrong creds sent
+        return Err("400".into());
+    } else {
+         //Other kinda errors if they magically appear
+        return Err("0".into())
+    }
+}
+async fn update_task_backend(username : String, title : String, status : TaskStatus) -> Result<(), Box<dyn std::error::Error>> {
+    let client = reqwest::Client::new();
+    let url = "http://localhost:3000/taskupdate";
+    let mut query_params = HashMap::new();
+    query_params.insert("username", username);
+    query_params.insert("title", title);
+    query_params.insert("status", status.to_string());
+
+    let response = client.post(url).query(&query_params).send().await?;
+
+    if response.status().is_success() {
+        return Ok(())
+    } else if response.status().as_u16() == 204 {
+        //To handle incorrect data sent
+        return Err("204".into());
+    } else if response.status().as_u16() == 400 {
+        //Handle wrong creds sent
+        return Err("400".into());
+    } else {
+         //Other kinda errors if they magically appear
+        return Err("0".into())
+    }
+}
+
 
 
 impl MyApp {
+    
     fn remove_task(&mut self, idx: usize) {
+        
+        
+        let username = self.current_user.clone().unwrap();
+        let title = self.tasks[idx].name.clone();
+
+        println!("Task removing {}", title);
+
+        self.rt.spawn(async move {
+            match remove_task_backend(username, title).await {
+                Ok(()) => {
+                    println!("Task successfully added");
+                    
+                }
+                Err(err) => {
+                    println!("{}", err.to_string());
+                    match err.to_string().as_str() {
+                        "204" => {
+                            println!("Incorrect data for request");
+                        }
+                        "400" => {
+                            println!("Wrong credentials")
+                        }
+                        _ => {
+                            println!("Server is dead");
+                        }
+                    }
+                    
+                }      
+            }
+        });
         self.tasks.remove(idx);
+        
     }
-    fn add_task(&mut self, name: String) {
-        self.tasks.push(Task { name: name, status: TaskStatus::NotCompleted });
+    fn update_task(&mut self, idx: usize, status : TaskStatus) {
+
+        self.tasks[idx].status = status.clone();
+
+        let username = self.current_user.clone().unwrap();
+        let title = self.tasks[idx].name.clone();
+        
+        self.rt.spawn(async move {
+            match update_task_backend(username, title, status).await {
+                Ok(()) => {
+                    println!("Task successfully updated");
+                }
+                Err(err) => {
+                    println!("{}", err.to_string());
+                    match err.to_string().as_str() {
+                        "204" => {
+                            println!("Incorrect data for request");
+                        }
+                        "400" => {
+                            println!("Wrong credentials")
+                        }
+                        _ => {
+                            println!("Server is dead");
+                        }
+                    }
+                    
+                }   
+            }
+        });
+
+
+    }
+    fn add_task(&mut self, name : String) {
+        if self.tasks.iter().any(|el| el.name == name) {
+            println!("Error adding task");
+            return;
+        }
+        
+        self.tasks.push(Task { name: name.clone(), status: TaskStatus::NotCompleted });
+        let title = name.clone();
+        println!("TASK ADDING {}", title);
+        let username = self.current_user.clone().unwrap();
+        let status = TaskStatus::NotCompleted;
+        self.rt.spawn(async move {
+            match add_task_backend(username, title).await {
+                Ok(()) => {
+                    println!("Task successfully added");
+                }
+                Err(err) => {
+                    println!("{}", err.to_string());
+                    match err.to_string().as_str() {
+                        "204" => {
+                            println!("Incorrect data for request");
+                        }
+                        "400" => {
+                            println!("Wrong credentials")
+                        }
+                        _ => {
+                            println!("Server is dead");
+                        }
+                    }
+                    
+                }      
+            }
+        });
         
     }
     
@@ -157,6 +340,28 @@ impl MyApp {
     fn load_tasks(&mut self) {
         let usrname = self.login.clone();
         println!("Username to load tasks: {}", &usrname);
+        
+        self.rt.block_on(async {
+            let client = reqwest::Client::new();
+            let url = "http://localhost:3000/tasksget";
+            let mut query_maps = HashMap::new();
+
+            query_maps.insert("username", self.current_user.clone().unwrap());
+
+            let response = client.get(url).query(&query_maps).send().await.unwrap();
+            
+            if response.status().is_success() {
+                self.tasks.push(Task { name: "sadkadks".to_string(), status: TaskStatus::Completed });
+            } else if response.status().as_u16() == 204 {
+              
+            } else if response.status().as_u16() == 400 {
+                
+            } else {
+                 //Other kinda errors if they magically appear
+                
+            }
+
+        })
     }
 
 
@@ -202,13 +407,18 @@ impl MyApp {
 
                     
                     ui.add_space(40.0);
-
+                    let bef = self.tasks[idx].status.to_string();
                     egui::ComboBox::from_id_salt(idx.to_string()).selected_text(self.tasks[idx].status.to_string()).show_ui(ui, |ui| {
                         ui.selectable_value(&mut self.tasks[idx].status, TaskStatus::Completed, "Completed");
                         ui.selectable_value(&mut self.tasks[idx].status, TaskStatus::InProgress, "In progress");
                         ui.selectable_value(&mut self.tasks[idx].status, TaskStatus::NotCompleted, "Not completed");
-                        
+                        if bef != self.tasks[idx].status.to_string() {
+                            
+                            let new_status = self.tasks[idx].status.clone();
+                            self.update_task(idx, new_status);
+                        }
                     });
+                
                    
                     ui.add_space(30.0);
 
