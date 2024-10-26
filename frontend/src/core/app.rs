@@ -36,7 +36,7 @@ impl FromStr for TaskStatus {
 }
 
 
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize, Deserialize, Clone)]
 struct Task {
     name: String,
     status: TaskStatus
@@ -58,23 +58,17 @@ pub struct MyApp {
 
 impl Default for MyApp {
     fn default() -> Self {
-
-        let mut app = MyApp {tasks: vec![], can_exit: false, exit_window: false, 
-        input_text: String::new(), current_user: None,
-        token: String::new(), login : String::new(), password: String::new(),
-        blogin: true, rt: Runtime::new().unwrap(), email: String::new() };
-
-
-        app
+        MyApp {tasks: vec![], can_exit: false, exit_window: false, 
+            input_text: String::new(), current_user: None,
+            token: String::new(), login : String::new(), password: String::new(),
+            blogin: true, rt: Runtime::new().unwrap(), email: String::new() }
     }
 }
 
 impl eframe::App for MyApp {
-
     fn on_exit(&mut self, _gl: Option<&eframe::glow::Context>) {
         println!("Exiting app... {}", self.login);
     }
-
     fn update(&mut self, ctx: &eframe::egui::Context, frame: &mut eframe::Frame) {
         egui::CentralPanel::default().show(ctx, |ui| {
             if self.current_user.is_some() {
@@ -83,28 +77,16 @@ impl eframe::App for MyApp {
                 self.draw_auth_ui(ui, ctx);
                 
             }
-            
-            //let rt = Runtime::new().unwrap();
-            // let lgn = self.login.clone();
-            // self.rt.spawn(async move {
-            //     tokio::time::sleep(Duration::new(2, 0)).await;
-            //     println!("{}", lgn);
-            // }); 
-            
         });
     }
 }
-
-async fn login_user(login : String, password : String) -> Result<(), Box<dyn std::error::Error>> {
+fn make_rich_text(str : &str, font_size: Option<f32>) -> RichText {
+    RichText::new(str).size(font_size.unwrap_or(16.0))
+}
+async fn get_request(url : &str, query : &HashMap<String, String>) -> Result<(), Box<dyn std::error::Error>> {
     let client = reqwest::Client::new();
 
-    let url = "http://localhost:3000/login";
-    let mut query_params = HashMap::new();
-    query_params.insert("name", login);
-    query_params.insert("password", password);
-
-    let response = client.get(url).query(&query_params).send().await?;
-
+    let response = client.get(url).query(query).send().await?;
 
     if response.status().is_success() {
         return Ok(())
@@ -118,20 +100,11 @@ async fn login_user(login : String, password : String) -> Result<(), Box<dyn std
         //Other kinda errors if they magically appear
         return Err("0".into())
     }
-
 }
-
-async fn register_user(login : String, password : String, email : String) -> Result<(), Box<dyn std::error::Error>> {
+async fn post_request(url : &str, query : HashMap<String, String>) -> Result<(), Box<dyn std::error::Error>> {
     let client = reqwest::Client::new();
 
-    let url = "http://localhost:3000/register";
-    let mut query_params = HashMap::new();
-    query_params.insert("name", login);
-    query_params.insert("password", password);
-    query_params.insert("email", email);
-
-    let response = client.post(url).query(&query_params).send().await?;
-
+    let response = client.post(url).query(&query).send().await?;
 
     if response.status().is_success() {
         return Ok(())
@@ -142,83 +115,10 @@ async fn register_user(login : String, password : String, email : String) -> Res
         //Handle wrong creds sent
         return Err("400".into());
     } else {
-         //Other kinda errors if they magically appear
+        //Other kinda errors if they magically appear
         return Err("0".into())
     }
 }
-async fn add_task_backend(username : String, title : String) -> Result<(), Box<dyn std::error::Error>> {
-    let client = reqwest::Client::new();
-
-
-    let url = "http://localhost:3000/taskadd";
-    let mut query_params = HashMap::new();
-    query_params.insert("username", username);
-    query_params.insert("title", title);
-    
-
-    let response = client.post(url).query(&query_params).send().await?;
-
-    if response.status().is_success() {
-        return Ok(())
-    } else if response.status().as_u16() == 204 {
-        //To handle incorrect data sent
-        return Err("204".into());
-    } else if response.status().as_u16() == 400 {
-        //Handle wrong creds sent
-        return Err("400".into());
-    } else {
-         //Other kinda errors if they magically appear
-        return Err("0".into())
-    }
-}
-async fn remove_task_backend(username : String, title : String) -> Result<(), Box<dyn std::error::Error>> {
-    let client = reqwest::Client::new();
-
-    let url = "http://localhost:3000/taskremove";
-    let mut query_params = HashMap::new();
-    query_params.insert("username", username);
-    query_params.insert("title", title);
-
-    let response = client.post(url).query(&query_params).send().await?;
-
-    if response.status().is_success() {
-        return Ok(())
-    } else if response.status().as_u16() == 204 {
-        //To handle incorrect data sent
-        return Err("204".into());
-    } else if response.status().as_u16() == 400 {
-        //Handle wrong creds sent
-        return Err("400".into());
-    } else {
-         //Other kinda errors if they magically appear
-        return Err("0".into())
-    }
-}
-async fn update_task_backend(username : String, title : String, status : TaskStatus) -> Result<(), Box<dyn std::error::Error>> {
-    let client = reqwest::Client::new();
-    let url = "http://localhost:3000/taskupdate";
-    let mut query_params = HashMap::new();
-    query_params.insert("username", username);
-    query_params.insert("title", title);
-    query_params.insert("status", status.to_string());
-
-    let response = client.post(url).query(&query_params).send().await?;
-
-    if response.status().is_success() {
-        return Ok(())
-    } else if response.status().as_u16() == 204 {
-        //To handle incorrect data sent
-        return Err("204".into());
-    } else if response.status().as_u16() == 400 {
-        //Handle wrong creds sent
-        return Err("400".into());
-    } else {
-         //Other kinda errors if they magically appear
-        return Err("0".into())
-    }
-}
-
-
 
 impl MyApp {
     
@@ -229,11 +129,15 @@ impl MyApp {
         let title = self.tasks[idx].name.clone();
 
         println!("Task removing {}", title);
-
+        
+        let url = "http://localhost:3000/taskremove";
+        let mut query_params = HashMap::new();
+        query_params.insert("username".to_string(), username);
+        query_params.insert("title".to_string(), title);
         self.rt.spawn(async move {
-            match remove_task_backend(username, title).await {
+            match post_request(url, query_params).await {
                 Ok(()) => {
-                    println!("Task successfully added");
+                    println!("Task successfully removed");
                     
                 }
                 Err(err) => {
@@ -262,9 +166,14 @@ impl MyApp {
 
         let username = self.current_user.clone().unwrap();
         let title = self.tasks[idx].name.clone();
-        
+
+        let url = "http://localhost:3000/taskupdate";
+        let mut query_params = HashMap::new();
+        query_params.insert("username".to_string(), username);
+        query_params.insert("title".to_string(), title);
+        query_params.insert("status".to_string(), status.to_string());
         self.rt.spawn(async move {
-            match update_task_backend(username, title, status).await {
+            match post_request(url, query_params).await {
                 Ok(()) => {
                     println!("Task successfully updated");
                 }
@@ -294,13 +203,17 @@ impl MyApp {
             return;
         }
         
-        self.tasks.push(Task { name: name.clone(), status: TaskStatus::NotCompleted });
+        self.tasks.insert(0, Task { name: name.clone(), status: TaskStatus::NotCompleted });
         let title = name.clone();
         println!("TASK ADDING {}", title);
         let username = self.current_user.clone().unwrap();
-        let status = TaskStatus::NotCompleted;
+
+        let url = "http://localhost:3000/taskadd";
+        let mut query_params = HashMap::new();
+        query_params.insert("username".to_string(), username);
+        query_params.insert("title".to_string(), title);
         self.rt.spawn(async move {
-            match add_task_backend(username, title).await {
+            match post_request(url, query_params).await {
                 Ok(()) => {
                     println!("Task successfully added");
                 }
@@ -354,6 +267,7 @@ impl MyApp {
                 let txt = response.text().await.unwrap();
                 let tsks : Vec<Task> = serde_json::from_str(&txt).unwrap();
                 self.tasks.extend(tsks);
+                self.tasks.reverse();
 
 
             } else if response.status().as_u16() == 204 {
@@ -362,7 +276,6 @@ impl MyApp {
                 
             } else {
                  //Other kinda errors if they magically appear
-                
             }
 
         })
@@ -393,54 +306,55 @@ impl MyApp {
             });
         }
     }
-    fn display_tasks(&mut self, ui : &mut Ui) {
+    fn display_tasks(&mut self, ui: &mut Ui) {
         egui::ScrollArea::new([false, true]).show(ui, |ui| {
             for idx in (0..self.tasks.len()).rev() {
-           
                 ui.horizontal(|ui| {
-                    let str = format!("{}.", self.tasks.len() - idx);
+                    let str = format!("{}.", self.tasks.len() - idx); 
                     let text = RichText::new(str).size(16.0).color(Color32::from_rgb(200, 200, 200));
                     ui.label(text);
-
+    
                     ui.add_space(30.0);
-
+    
                     let str = format!("Name: {}", self.tasks[idx].name);
                     let text = RichText::new(str).size(16.0).color(Color32::from_rgb(200, 200, 200));
-                    ui.label(text);
-
-
                     
-                    ui.add_space(40.0);
-                    let bef = self.tasks[idx].status.to_string();
-                    egui::ComboBox::from_id_salt(idx.to_string()).selected_text(self.tasks[idx].status.to_string()).show_ui(ui, |ui| {
-                        ui.selectable_value(&mut self.tasks[idx].status, TaskStatus::Completed, "Completed");
-                        ui.selectable_value(&mut self.tasks[idx].status, TaskStatus::InProgress, "In progress");
-                        ui.selectable_value(&mut self.tasks[idx].status, TaskStatus::NotCompleted, "Not completed");
-                        if bef != self.tasks[idx].status.to_string() {
-                            
-                            let new_status = self.tasks[idx].status.clone();
-                            self.update_task(idx, new_status);
+    
+                    // ui.add_space(40.0);
+                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Max).with_main_justify(true), |ui| {
+                        ui.add_space(ui.available_width() / 2.0);
+                        let status_before = self.tasks[idx].status.to_string();
+                        egui::ComboBox::from_id_salt(idx.to_string())
+                            .selected_text(self.tasks[idx].status.to_string())
+                            .show_ui(ui, |ui| {
+                                ui.selectable_value(&mut self.tasks[idx].status, TaskStatus::Completed, "Completed");
+                                ui.selectable_value(&mut self.tasks[idx].status, TaskStatus::InProgress, "In progress");
+                                ui.selectable_value(&mut self.tasks[idx].status, TaskStatus::NotCompleted, "Not completed");
+                
+                                if status_before != self.tasks[idx].status.to_string() {
+                                    let new_status = self.tasks[idx].status.clone();
+                                    self.update_task(idx, new_status);
+                                }
+                            });
+                    });
+                    
+    
+                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Min), |ui| {
+                        ui.add_space(10.0);  // Optional space to separate from other content
+                        if ui.button("X").clicked() {
+                            self.remove_task(idx);
                         }
                     });
-                
-                   
-                    ui.add_space(30.0);
-
-                    if ui.button("X").clicked() {
-                        self.remove_task(idx);   
-                    }
                 });
                 ui.separator();
-                
-
             }
+
+           
         });
     }
     fn draw_tasks_ui(&mut self, ui : &mut Ui, ctx: &eframe::egui::Context) {
         //Heading
-        let str = "TODOLIST".to_string();
-        let text = RichText::new(str).size(35.0);
-        ui.heading(text);
+        ui.heading(make_rich_text("TODO List", None));
         ui.add_space(30.0);
 
 
@@ -471,33 +385,31 @@ impl MyApp {
 
     }
     fn draw_auth_ui(&mut self, ui : &mut Ui, ctx: &eframe::egui::Context) {
-        let str = format!("Please authorize");
-        let text: RichText = RichText::new(str).size(16.0);
-        ui.label(text);
-
+        ui.label(make_rich_text("Please authorize", None));
 
         if ui.button("Change").clicked() {
             self.blogin = !self.blogin;
             self.login.clear();
             self.password.clear();
         }
-
         if self.blogin {
-            let str = format!("Login");
-            let text = RichText::new(str).size(16.0);
-            let labl = ui.label(text);
+            let labl = ui.label(make_rich_text("Login", None));
             ui.text_edit_singleline(&mut self.login).labelled_by(labl.id);
 
-            let str = format!("Password");
-            let text = RichText::new(str).size(16.0);
-            let labl = ui.label(text);
+            
+            let labl = ui.label(make_rich_text("Password", None));
             ui.text_edit_singleline(&mut self.password).labelled_by(labl.id);
 
             let log_btn = ui.button("Login");
             if log_btn.clicked() {
                 //LOGIN LOGC
                 let rt = tokio::runtime::Runtime::new().unwrap();
-                match rt.block_on(login_user(self.login.clone(), self.password.clone())) {
+
+                let url = "http://localhost:3000/login";
+                let mut query_params = HashMap::new();
+                query_params.insert("name".to_string(), self.login.clone());
+                query_params.insert("password".to_string(), self.password.clone());
+                match rt.block_on(get_request(url, &query_params)) {
                     Ok(()) => {
                         self.current_user = Some(self.login.clone());
                         println!("load all tasks");
@@ -523,19 +435,20 @@ impl MyApp {
 
             }
         } else {
-            let str = format!("Email");
-            let text = RichText::new(str).size(16.0);
-            let labl = ui.label(text);
+            let labl = ui.label(make_rich_text("Email", None));
             ui.text_edit_singleline(&mut self.email).labelled_by(labl.id);
 
-            let str = format!("Login");
-            let text = RichText::new(str).size(16.0);
-            let labl = ui.label(text);
+            
+            
+            let labl = ui.label(make_rich_text("Login", None));
+           
             ui.text_edit_singleline(&mut self.login).labelled_by(labl.id);
 
-            let str = format!("Password");
-            let text = RichText::new(str).size(16.0);
-            let labl = ui.label(text);
+            // let str = format!("Password");
+            // let text = RichText::new(str).size(16.0);
+           
+            let labl = ui.label(make_rich_text("Password", None));
+            
             ui.text_edit_singleline(&mut self.password).labelled_by(labl.id);
 
             
@@ -545,7 +458,13 @@ impl MyApp {
                 //REG LOGIC
 
                 let rt = tokio::runtime::Runtime::new().unwrap();
-                match rt.block_on(register_user(self.login.clone(), self.password.clone(), self.email.clone())) {
+
+                let url = "http://localhost:3000/register";
+                let mut query_params = HashMap::new();
+                query_params.insert("name".to_string(), self.login.clone());
+                query_params.insert("password".to_string(), self.password.clone());
+                query_params.insert("email".to_string(), self.email.clone());
+                match rt.block_on(post_request(url, query_params)) {
                     Ok(()) => {
                         self.current_user = Some(self.login.clone());
                         self.load_tasks();

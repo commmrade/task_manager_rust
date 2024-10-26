@@ -59,7 +59,7 @@ struct Resp {
 struct TaskAddQuery {
     username : String,
     title : String,
-}
+} 
 
 
 #[derive(Serialize, Deserialize)]

@@ -14,8 +14,6 @@ pub struct Db {
 impl Db
 {
     pub async fn new(url : String) -> Result<Self, Error> {
-    
-       
         let pool = sqlx::MySqlPool::connect(&url).await.unwrap();
 
         Ok(Self { pool })
