@@ -30,7 +30,7 @@ impl Db
 
         Ok((!row.is_empty(), row.get(0))) //true if not empty
     }
-    pub async fn task_exists(&self, username : String, title : String) -> Result<bool, sqlx::Error> {
+    pub async fn task_exists(&self, username : String, title : String) -> Result<(bool, i32), sqlx::Error> {
         let row = match sqlx::query("SELECT * FROM tasks WHERE (title = ? AND user_id = ?)")
         .bind(title)
         .bind(self.user_exists(username).await?.1)
@@ -38,15 +38,15 @@ impl Db
             Ok(row) => row,
             Err(why) => {
                 println!("Error fetching {}", why);
-                return Ok(false)
+                return Ok((false, 0))
             }
         };
         println!("task exists {}", row.is_empty());
-        Ok(!row.is_empty())
+        Ok((!row.is_empty(), row.get(0)))
     }
     pub async fn add_user(&self, username : String, password : String, email : String) -> Result<(), sqlx::Error> {
         match self.user_exists(username.clone()).await {
-            Ok((b_exists, id)) => {
+            Ok((b_exists, _)) => {
                 if !b_exists {
                     sqlx::query("INSERT INTO users (username, password, email) VALUES (?, ?, ?)").bind(username)
                     .bind(password)
@@ -65,7 +65,7 @@ impl Db
     pub async fn login_user(&self, username : String, password : String) -> Result<(), sqlx::Error> {
 
         match self.user_exists(username.clone()).await {
-            Ok((b_exists, id)) => {
+            Ok((b_exists, _)) => {
                 if b_exists {
                     let row = sqlx::query("SELECT username, password FROM users WHERE username = ?").bind(username.clone())
                     .fetch_one(&self.pool).await?;
@@ -91,7 +91,7 @@ impl Db
 
         match self.user_exists(username.clone()).await {
             Ok((b_exists, id)) => {
-                if b_exists && !self.task_exists(username, title.clone()).await.unwrap() {
+                if b_exists && !self.task_exists(username, title.clone()).await.unwrap().0 {
                     println!("Adding task");
                     sqlx::query("INSERT INTO tasks (user_id, title, status) VALUES (?, ?, ?)")
                     .bind(id)
@@ -113,7 +113,7 @@ impl Db
     }
     pub async fn remove_task(&self, username : String, title : String) -> Result<(), sqlx::Error> {
         match self.task_exists(username.clone(), title.clone()).await {
-            Ok(b_exists) => {
+            Ok((b_exists, id)) => {
                 if b_exists {
                     sqlx::query("DELETE FROM tasks WHERE (title = ? AND user_id = ?)")
                     .bind(title)
@@ -134,7 +134,7 @@ impl Db
     pub async fn update_task(&self, username : String, title : String, status : String) -> Result<(), sqlx::Error> {
 
         match self.task_exists(username.clone(), title.clone()).await {
-            Ok(b_exists) => {
+            Ok((b_exists, id)) => {
                 if b_exists {
                     sqlx::query("UPDATE tasks SET status = ? WHERE (user_id = ? AND title = ?)")
                     .bind(status.to_string())
@@ -153,20 +153,72 @@ impl Db
 
         Ok(())
     }
+    pub async fn fetch_comments(&self, username : String, title : String, username_id : i32, task_id : i32) -> Result<Vec<String>, sqlx::Error> {
+        let mut result : Vec<String> = Vec::new();
+        let rows = sqlx::query("SELECT text FROM comments WHERE (user_id = ? AND task_id = ?)")
+        .bind(username_id)
+        .bind(task_id)
+        .fetch_all(&self.pool).await?;
+        
+        for row in rows {
+            result.push(row.get(0));
+        }
+
+        Ok(result)
+
+    }
     pub async fn fetch_tasks(&self, username : String) -> Result<Vec<Task>, sqlx::Error> {
-        match self.user_exists(username).await {
+        match self.user_exists(username.clone()).await {
             Ok((b_exists, id)) => {
                 if b_exists {
                     let mut tasks : Vec<Task> = Vec::new();
-                    let rows = sqlx::query("SELECT title, status FROM tasks WHERE user_id = ?")
+                    let rows = sqlx::query("SELECT title, status, id FROM tasks WHERE user_id = ?")
                     .bind(id)
                     .fetch_all(&self.pool).await?;
 
                     for row in rows {
-                        tasks.push(Task { name: row.get(0), status: TaskStatus::from_str(row.get(1)).unwrap() });
+                        let comms = match self.fetch_comments(username.clone(), row.get(1), id, row.get(2)).await {
+                            Ok(vec) => vec, 
+                            Err(why) => {
+                                println!("Fetching comments error");
+                                return Err(why);
+                            }
+                        };
+                        let mut task = Task { name: row.get(0), status: TaskStatus::from_str(row.get(1)).unwrap(),comments: vec![] };
+                        task.comments.extend(comms);
+
+                        tasks.push(task);
                     }
 
                     Ok(tasks)
+                } else {
+                    return Err(sqlx::Error::AnyDriverError("User does not exist".into()))
+                }
+            }
+            Err(why) => {
+                println!("Fetching error {}", why);
+                return Err(why)
+            }
+        }
+    }
+    pub async fn add_comment(&self, username : String, title : String, comment : String) -> Result<(), sqlx::Error> {
+        match self.user_exists(username.clone()).await {
+            Ok((b_exists, id)) => {
+                if b_exists {
+                    match self.task_exists(username, title).await {
+                        Ok((b_exists, task_id)) => {
+                            sqlx::query("INSERT INTO comments (task_id, user_id, text) VALUES (?, ?, ?)").bind(task_id)
+                            .bind(id)
+                            .bind(comment)
+                            .execute(&self.pool).await?;
+
+                            Ok(())
+                        }
+                        Err(why) => {
+                            return Err(sqlx::Error::AnyDriverError("Task does not exist".into()))
+                        }
+                    }
+                   
                 } else {
                     return Err(sqlx::Error::AnyDriverError("User does not exist".into()))
                 }

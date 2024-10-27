@@ -39,12 +39,15 @@ impl FromStr for TaskStatus {
 #[derive(Serialize, Deserialize, Clone)]
 struct Task {
     name: String,
-    status: TaskStatus
+    status: TaskStatus,
+    comments : Vec<String>
+    
 }
 pub struct MyApp {
     tasks : Vec<Task>,
     can_exit : bool,
     current_user : Option<String>,
+    comment_input : String,
     token : String,
     login : String,
     blogin : bool,
@@ -60,8 +63,8 @@ impl Default for MyApp {
     fn default() -> Self {
         MyApp {tasks: vec![], can_exit: false, exit_window: false, 
             input_text: String::new(), current_user: None,
-            token: String::new(), login : String::new(), password: String::new(),
-            blogin: true, rt: Runtime::new().unwrap(), email: String::new() }
+            token: String::new(), login : String::new(), password: String::new(), 
+            blogin: true, rt: Runtime::new().unwrap(), email: String::new(), comment_input: String::new() }
     }
 }
 
@@ -160,6 +163,39 @@ impl MyApp {
         self.tasks.remove(idx);
         
     }
+    fn add_comment(&mut self, idx : usize) {
+        self.tasks[idx].comments.push(self.comment_input.clone());
+
+        let url = "http://localhost:3000/comadd";
+        let mut query_params = HashMap::new();
+        query_params.insert("username".to_string(), self.current_user.clone().unwrap());
+        query_params.insert("title".to_string(), self.tasks[idx].name.clone());
+        query_params.insert("comment".to_string(), self.comment_input.clone());
+
+        self.rt.spawn(async move {
+            match post_request(url, query_params).await {
+                Ok(()) => {
+                    println!("Comment successfully added");
+                    
+                }
+                Err(err) => {
+                    println!("{}", err.to_string());
+                    match err.to_string().as_str() {
+                        "204" => {
+                            println!("Incorrect data for request");
+                        }
+                        "400" => {
+                            println!("Wrong credentials")
+                        }
+                        _ => {
+                            println!("Server is dead");
+                        }
+                    }
+                    
+                }      
+            }
+        });
+    }
     fn update_task(&mut self, idx: usize, status : TaskStatus) {
 
         self.tasks[idx].status = status.clone();
@@ -203,7 +239,7 @@ impl MyApp {
             return;
         }
         
-        self.tasks.insert(0, Task { name: name.clone(), status: TaskStatus::NotCompleted });
+        self.tasks.insert(0, Task { name: name.clone(), status: TaskStatus::NotCompleted, comments : vec![] });
         let title = name.clone();
         println!("TASK ADDING {}", title);
         let username = self.current_user.clone().unwrap();
@@ -310,48 +346,59 @@ impl MyApp {
         egui::ScrollArea::new([false, true]).show(ui, |ui| {
             for idx in (0..self.tasks.len()).rev() {
                 ui.horizontal(|ui| {
-                    let str = format!("{}.", self.tasks.len() - idx); 
-                    let text = RichText::new(str).size(16.0).color(Color32::from_rgb(200, 200, 200));
+                    // Display task name and status in the card header
+                    ui.add_space(30.0);
+                    let text = RichText::new(&self.tasks[idx].name)
+                        .size(16.0)
+                        .color(Color32::from_rgb(200, 200, 200));
                     ui.label(text);
     
-                    ui.add_space(30.0);
+                    // Display a dropdown to change task status
+                    ComboBox::from_id_salt(idx)
+                        .selected_text(self.tasks[idx].status.to_string())
+                        .show_ui(ui, |ui| {
+                            ui.selectable_value(&mut self.tasks[idx].status, TaskStatus::Completed, "Completed");
+                            ui.selectable_value(&mut self.tasks[idx].status, TaskStatus::InProgress, "In Progress");
+                            ui.selectable_value(&mut self.tasks[idx].status, TaskStatus::NotCompleted, "Not Completed");
+                        });
     
-                    let str = format!("Name: {}", self.tasks[idx].name);
-                    let text = RichText::new(str).size(16.0).color(Color32::from_rgb(200, 200, 200));
-                    
-    
-                    // ui.add_space(40.0);
-                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Max).with_main_justify(true), |ui| {
-                        ui.add_space(ui.available_width() / 2.0);
-                        let status_before = self.tasks[idx].status.to_string();
-                        egui::ComboBox::from_id_salt(idx.to_string())
-                            .selected_text(self.tasks[idx].status.to_string())
-                            .show_ui(ui, |ui| {
-                                ui.selectable_value(&mut self.tasks[idx].status, TaskStatus::Completed, "Completed");
-                                ui.selectable_value(&mut self.tasks[idx].status, TaskStatus::InProgress, "In progress");
-                                ui.selectable_value(&mut self.tasks[idx].status, TaskStatus::NotCompleted, "Not completed");
-                
-                                if status_before != self.tasks[idx].status.to_string() {
-                                    let new_status = self.tasks[idx].status.clone();
-                                    self.update_task(idx, new_status);
-                                }
-                            });
-                    });
-                    
-    
-                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Min), |ui| {
-                        ui.add_space(10.0);  // Optional space to separate from other content
-                        if ui.button("X").clicked() {
-                            self.remove_task(idx);
-                        }
-                    });
+                    // Add a remove button on the right
+                    if ui.button("X").clicked() {
+                        self.remove_task(idx);
+                    }
                 });
+    
+                // Add collapsible card to open task details
+               
+                egui::CollapsingHeader::new("Comments").id_salt(idx + 100)
+                    .default_open(false)
+                    .show(ui, |ui| {
+                      
+                        ui.add_space(10.0);
+                        
+                        
+                        for i in 0..self.tasks[idx].comments.len() {
+                            ui.label(self.tasks[idx].comments[i].clone());
+                        }
+                        // Optional: Add space to enter new comments
+                        
+                        ui.horizontal(|ui| {
+                            
+                            ui.text_edit_singleline(&mut self.comment_input);
+                            if ui.button("Add Comment").clicked() {
+                                // Add comment handling logic here
+                                self.add_comment(idx);
+                                self.comment_input.clear();
+                            }
+                        });
+                    });
+    
                 ui.separator();
             }
-
-           
         });
     }
+    
+    
     fn draw_tasks_ui(&mut self, ui : &mut Ui, ctx: &eframe::egui::Context) {
         //Heading
         ui.heading(make_rich_text("TODO List", None));

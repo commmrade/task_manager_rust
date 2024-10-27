@@ -77,7 +77,15 @@ struct UserQuery {
 #[derive(Serialize, Deserialize)]
 struct Task {
     name: String,
-    status: TaskStatus
+    status: TaskStatus,
+    comments : Vec<String>
+}
+
+#[derive(Serialize, Deserialize)]
+struct TaskAddCom {
+    username : String, 
+    title : String,
+    comment : String
 }
 
 
@@ -101,6 +109,7 @@ async fn main() {
     .route("/taskremove", post(remove_task))
     .route("/taskupdate", post(update_task))
     .route("/tasksget", get(get_tasks))
+    .route("/comadd", post(add_comment))
     .with_state(app_state);
  
 
@@ -243,7 +252,7 @@ async fn get_tasks(State(appstate) : State<Arc<AppState>>, result : Result<Query
                         return Ok(Json(vec))
                     }
                     Err(why) => {
-                        println!("TAsk remove error: {}", why);
+                        println!("TAsk fetch error: {}", why);
                         return Err((StatusCode::BAD_REQUEST, "wrong data".into()))
                     }
                 }
@@ -258,4 +267,26 @@ async fn get_tasks(State(appstate) : State<Arc<AppState>>, result : Result<Query
     }
 }
 
+async fn add_comment(State(appstate) : State<Arc<AppState>>, result : Result<Query<TaskAddCom>, QueryRejection>) -> Result<Json<()>, (StatusCode, String)> {
+    match result {
+        Ok(Query(result)) => {
+            if !result.username.is_empty() && !result.title.is_empty() && !result.comment.is_empty() {
+                match appstate.db.add_comment(result.username, result.title, result.comment).await {
+                    Ok(()) => {
+                        return Ok(Json(()))
+                    }
+                    Err(why) => {
+                        println!("Com add error");
+                        return Err((StatusCode::BAD_REQUEST, "".to_string()))
+                    }
+                 }
+            } else {
+                return Err((StatusCode::NO_CONTENT, "".to_string()))
+            }
+        }
+        Err(_) => {
+            return Err((StatusCode::NO_CONTENT, "".to_string()))
+        }
+    }
+}
 
