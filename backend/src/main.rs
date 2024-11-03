@@ -74,11 +74,18 @@ struct UserQuery {
     username : String
 }
 
+
+#[derive(Serialize, Deserialize, Clone)]
+struct Comment {
+    text: String,
+    created_at: String
+}
+
 #[derive(Serialize, Deserialize)]
 struct Task {
     name: String,
     status: TaskStatus,
-    comments : Vec<String>
+    comments : Vec<Comment>
 }
 
 #[derive(Serialize, Deserialize)]

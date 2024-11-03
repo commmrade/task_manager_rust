@@ -1,11 +1,12 @@
 
 use std::str::FromStr;
 
+use chrono::{DateTime, Local, Utc};
 use sqlx::{mysql::MySqlRow, Error, MySql};
 use tokio::runtime::Runtime;
 use sqlx::Row;
 
-use crate::{Task, TaskStatus};
+use crate::{Comment, Task, TaskStatus};
 
 pub struct Db {
     pool : sqlx::Pool<MySql>
@@ -153,15 +154,16 @@ impl Db
 
         Ok(())
     }
-    pub async fn fetch_comments(&self, username : String, title : String, username_id : i32, task_id : i32) -> Result<Vec<String>, sqlx::Error> {
-        let mut result : Vec<String> = Vec::new();
-        let rows = sqlx::query("SELECT text FROM comments WHERE (user_id = ? AND task_id = ?)")
+    pub async fn fetch_comments(&self, username : String, title : String, username_id : i32, task_id : i32) -> Result<Vec<Comment>, sqlx::Error> {
+        let mut result : Vec<Comment> = Vec::new();
+        let rows = sqlx::query("SELECT text, created_at FROM comments WHERE (user_id = ? AND task_id = ?)")
         .bind(username_id)
         .bind(task_id)
         .fetch_all(&self.pool).await?;
         
         for row in rows {
-            result.push(row.get(0));
+            let timestamp : sqlx::types::chrono::DateTime<Local> = row.get(1);
+            result.push(Comment { text: row.get(0), created_at: timestamp.to_string()});
         }
 
         Ok(result)

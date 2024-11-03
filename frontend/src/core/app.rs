@@ -1,5 +1,6 @@
-use std::{clone, collections::{HashMap, HashSet}, str::FromStr, thread, time::Duration};
+use std::{borrow::{Borrow, BorrowMut}, clone, collections::{HashMap, HashSet}, process::exit, str::FromStr, thread, time::{Duration, SystemTime}};
 
+use chrono::{DateTime, Local, Utc};
 use egui::{Color32, ComboBox, RichText, Ui};
 use serde::{Deserialize, Serialize};
 use tokio::runtime::Runtime;
@@ -35,12 +36,17 @@ impl FromStr for TaskStatus {
     }
 }
 
+#[derive(Serialize, Deserialize, Clone, Debug)]
+struct Comment {
+    text: String,
+    created_at: String
+}
 
 #[derive(Serialize, Deserialize, Clone)]
 struct Task {
     name: String,
     status: TaskStatus,
-    comments : Vec<String>
+    comments : Vec<Comment>
     
 }
 pub struct MyApp {
@@ -164,7 +170,9 @@ impl MyApp {
         
     }
     fn add_comment(&mut self, idx : usize) {
-        self.tasks[idx].comments.push(self.comment_input.clone());
+        let now = Utc::now();
+        let localized_time : DateTime<Local> = DateTime::from(now);
+        self.tasks[idx].comments.push(Comment { text: self.comment_input.clone(), created_at: localized_time.to_string()});
 
         let url = "http://localhost:3000/comadd";
         let mut query_params = HashMap::new();
@@ -343,6 +351,7 @@ impl MyApp {
         }
     }
     fn display_tasks(&mut self, ui: &mut Ui) {
+       
         egui::ScrollArea::new([false, true]).show(ui, |ui| {
             for idx in (0..self.tasks.len()).rev() {
                 ui.horizontal(|ui| {
@@ -365,28 +374,44 @@ impl MyApp {
                     // Add a remove button on the right
                     if ui.button("X").clicked() {
                         self.remove_task(idx);
+                        
                     }
                 });
     
                 // Add collapsible card to open task details
                
-                egui::CollapsingHeader::new("Comments").id_salt(idx + 100)
+                egui::CollapsingHeader::new("Comments").id_salt(idx + 1000)
                     .default_open(false)
                     .show(ui, |ui| {
                       
                         ui.add_space(10.0);
                         
                         
-                        for i in 0..self.tasks[idx].comments.len() {
-                            ui.label(self.tasks[idx].comments[i].clone());
-                        }
-                        // Optional: Add space to enter new comments
+
                         
+                        if idx < self.tasks.len() {
+                            for i in 0..self.tasks[idx].comments.len() {
+                                let cur_time = &self.tasks[idx].comments[i].created_at.clone();
+    
+                                ui.horizontal(|ui| {
+                                    ui.label(self.tasks[idx].comments[i].clone().text);
+                                    ui.add_space(15.0);
+    
+                                    let text = make_rich_text(if cur_time.contains(".") {&cur_time[..cur_time.rfind(".").unwrap()]} else {&cur_time[..cur_time.rfind(" ").unwrap()]}, 10.0.into());
+                                    ui.label(text);
+                                });
+    
+                               
+                            }
+                        }
+                        
+                        
+                       
                         ui.horizontal(|ui| {
                             
                             ui.text_edit_singleline(&mut self.comment_input);
-                            if ui.button("Add Comment").clicked() {
-                                // Add comment handling logic here
+                            let bt = egui::Button::new("Add comment").rounding(70.0);
+                            if ui.add(bt).clicked() {
                                 self.add_comment(idx);
                                 self.comment_input.clear();
                             }
@@ -441,11 +466,12 @@ impl MyApp {
         }
         if self.blogin {
             let labl = ui.label(make_rich_text("Login", None));
-            ui.text_edit_singleline(&mut self.login).labelled_by(labl.id);
+            egui::TextEdit::singleline(&mut self.login).hint_text("Your username").show(ui);
 
             
             let labl = ui.label(make_rich_text("Password", None));
-            ui.text_edit_singleline(&mut self.password).labelled_by(labl.id);
+            egui::TextEdit::singleline(&mut self.password).password(true).hint_text("Password").show(ui);
+            //ui.text_edit_singleline(&mut self.password).labelled_by(labl.id);
 
             let log_btn = ui.button("Login");
             if log_btn.clicked() {
