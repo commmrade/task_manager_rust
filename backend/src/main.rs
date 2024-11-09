@@ -1,14 +1,14 @@
 use std::{result, str::FromStr, sync::Arc};
 
 mod handlers;
-use axum::{extract::{rejection::QueryRejection, Query, State}, http::StatusCode, routing::{get, post}, Json, Router};
+use axum::{extract::{rejection::{JsonRejection, QueryRejection}, Query, State}, http::StatusCode, routing::{get, post}, Json, Router};
 use handlers::database::{self, Db};
 use serde::{Deserialize, Serialize};
 use tokio::runtime::Runtime;
 
 
 
-#[derive(Serialize, Deserialize, PartialEq)]
+#[derive(Serialize, Deserialize, PartialEq, Debug)]
 enum TaskStatus {
     Completed,
     NotCompleted,
@@ -55,19 +55,6 @@ struct Resp {
     token: String
 }
 
-#[derive(Serialize, Deserialize)]
-struct TaskAddQuery {
-    username : String,
-    title : String,
-} 
-
-
-#[derive(Serialize, Deserialize)]
-struct TaskUpdQuery {
-    username : String,
-    title : String,
-    status : String
-}
 
 #[derive(Serialize, Deserialize)]
 struct UserQuery {
@@ -75,25 +62,19 @@ struct UserQuery {
 }
 
 
-#[derive(Serialize, Deserialize, Clone)]
+#[derive(Serialize, Deserialize, Clone, Debug)]
 struct Comment {
     text: String,
     created_at: String
 }
 
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize, Deserialize, Debug)]
 struct Task {
     name: String,
-    status: TaskStatus,
+    status:  TaskStatus,
     comments : Vec<Comment>
 }
 
-#[derive(Serialize, Deserialize)]
-struct TaskAddCom {
-    username : String, 
-    title : String,
-    comment : String
-}
 
 
 struct AppState {
@@ -112,11 +93,8 @@ async fn main() {
     let app : Router<()> = Router::new()
     .route("/login", get(login))
     .route("/register", post(register))
-    .route("/taskadd", post(add_task))
-    .route("/taskremove", post(remove_task))
-    .route("/taskupdate", post(update_task))
     .route("/tasksget", get(get_tasks))
-    .route("/comadd", post(add_comment))
+    .route("/taskspost", post(post_tasks))
     .with_state(app_state);
  
 
@@ -174,82 +152,6 @@ async fn register(State(appstate) : State<Arc<AppState>>, result : Result<Query<
         }
     }
 }
-async fn add_task(State(appstate) : State<Arc<AppState>>, result : Result<Query<TaskAddQuery>, QueryRejection>) -> Result<Json<()>, (StatusCode, String)> {
-    match result {
-        Ok(Query(result)) => {
-            if !result.username.is_empty() && !result.title.is_empty() {
-                match appstate.db.add_task(result.username, result.title).await {
-                    Ok(()) => {
-                        Ok(Json(()))
-                    }
-                    Err(why) => {
-                        println!("TAsk add error: {}", why);
-                        return Err((StatusCode::BAD_REQUEST, "wrong data".into()))
-                    }
-                }
-            } else {
-                Err((StatusCode::BAD_REQUEST, "Wrong creds".into()))
-            }
-        }
-        Err(_) => {
-            println!("Incorrect data");
-            Err((StatusCode::NO_CONTENT, "".to_string()))
-        }
-    }
-
-}
-
-async fn remove_task(State(appstate) : State<Arc<AppState>>, result : Result<Query<TaskAddQuery>, QueryRejection>) -> Result<Json<()>, (StatusCode, String)> {
-    match result {
-        Ok(Query(result)) => {
-            if !result.username.is_empty() && !result.title.is_empty() {
-                match appstate.db.remove_task(result.username, result.title).await {
-                    Ok(()) => {
-                        Ok(Json(()))
-                    }
-                    Err(why) => {
-                        println!("TAsk remove error: {}", why);
-                        return Err((StatusCode::BAD_REQUEST, "wrong data".into()))
-                    }
-                }
-            } else {
-                Err((StatusCode::BAD_REQUEST, "Wrong creds".into()))
-            }
-        }
-        Err(_) => {
-            println!("Incorrect data");
-            Err((StatusCode::NO_CONTENT, "".to_string()))
-        }
-    }
-
-}
-
-
-async fn update_task(State(appstate) : State<Arc<AppState>>, result : Result<Query<TaskUpdQuery>, QueryRejection>) -> Result<Json<()>, (StatusCode, String)> {
-    match result {
-        Ok(Query(result)) => {
-            if !result.username.is_empty() && !result.title.is_empty() {
-                match appstate.db.update_task(result.username, result.title, result.status).await {
-                    Ok(()) => {
-                        Ok(Json(()))
-                    }
-                    Err(why) => {
-                        println!("TAsk remove error: {}", why);
-                        return Err((StatusCode::BAD_REQUEST, "wrong data".into()))
-                    }
-                }
-            } else {
-                Err((StatusCode::BAD_REQUEST, "Wrong creds".into()))
-            }
-        }
-        Err(_) => {
-            println!("Incorrect data");
-            Err((StatusCode::NO_CONTENT, "".to_string()))
-        }
-    }
-
-}
-
 async fn get_tasks(State(appstate) : State<Arc<AppState>>, result : Result<Query<UserQuery>, QueryRejection>) -> Result<Json<Vec<Task>>, (StatusCode, String)> {
     match result {
         Ok(Query(result)) => {
@@ -273,25 +175,24 @@ async fn get_tasks(State(appstate) : State<Arc<AppState>>, result : Result<Query
         }
     }
 }
-
-async fn add_comment(State(appstate) : State<Arc<AppState>>, result : Result<Query<TaskAddCom>, QueryRejection>) -> Result<Json<()>, (StatusCode, String)> {
+async fn post_tasks(State(appstate) : State<Arc<AppState>>, query : Result<Query<UserQuery>, QueryRejection>, result : Result<Json<Vec<Task>>, JsonRejection>) -> Result<(), (StatusCode, String)> {
     match result {
-        Ok(Query(result)) => {
-            if !result.username.is_empty() && !result.title.is_empty() && !result.comment.is_empty() {
-                match appstate.db.add_comment(result.username, result.title, result.comment).await {
+        Ok(Json(result)) => {
+            
+             for element in result {
+                match appstate.db.add_task(Query(query.as_ref().unwrap()).username.clone(), element).await {
                     Ok(()) => {
-                        return Ok(Json(()))
+                        
                     }
                     Err(why) => {
-                        println!("Com add error");
-                        return Err((StatusCode::BAD_REQUEST, "".to_string()))
+                        println!("Saving task error {}", why);
                     }
-                 }
-            } else {
-                return Err((StatusCode::NO_CONTENT, "".to_string()))
-            }
+                }
+             }
+             return Ok(())
         }
         Err(_) => {
+            println!("Incorrect data");
             return Err((StatusCode::NO_CONTENT, "".to_string()))
         }
     }

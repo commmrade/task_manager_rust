@@ -3,12 +3,13 @@ use std::{borrow::{Borrow, BorrowMut}, clone, collections::{HashMap, HashSet}, p
 use chrono::{DateTime, Local, Utc};
 use egui::{Color32, ComboBox, RichText, Ui};
 use serde::{Deserialize, Serialize};
+use serde_json::json;
 use tokio::runtime::Runtime;
 
 use super::json_handler;
 
 
-#[derive(Serialize, Deserialize, PartialEq, Clone)]
+#[derive(Serialize, Deserialize, PartialEq, Clone, Debug)]
 enum TaskStatus {
     Completed,
     NotCompleted,
@@ -42,13 +43,16 @@ struct Comment {
     created_at: String
 }
 
-#[derive(Serialize, Deserialize, Clone)]
+#[derive(Serialize, Deserialize, Clone, Debug)]
 struct Task {
     name: String,
     status: TaskStatus,
     comments : Vec<Comment>
     
 }
+
+
+
 pub struct MyApp {
     tasks : Vec<Task>,
     can_exit : bool,
@@ -61,31 +65,81 @@ pub struct MyApp {
     email : String,
     exit_window : bool,
     input_text: String,
-    rt : Runtime
+    rt : Runtime,
+    prev_check : DateTime<Local>
 }
 
 
 impl Default for MyApp {
     fn default() -> Self {
-        MyApp {tasks: vec![], can_exit: false, exit_window: false, 
+
+
+
+        let app = MyApp {tasks: vec![], can_exit: false, exit_window: false, 
             input_text: String::new(), current_user: None,
             token: String::new(), login : String::new(), password: String::new(), 
-            blogin: true, rt: Runtime::new().unwrap(), email: String::new(), comment_input: String::new() }
+            blogin: true, rt: Runtime::new().unwrap(), email: String::new(), comment_input: String::new(), prev_check: Local::now() };
+
+        
+        
+
+        app
     }
 }
 
 impl eframe::App for MyApp {
     fn on_exit(&mut self, _gl: Option<&eframe::glow::Context>) {
         println!("Exiting app... {}", self.login);
+        let url = "http://localhost:3000/taskspost";
+        let mut query_params: HashMap<String, String> = HashMap::new();
+        query_params.insert("username".to_string(), self.current_user.clone().unwrap());
+        
+        match self.rt.block_on(post_request_json(url, query_params, serde_json::to_string(&self.tasks).unwrap())) {
+            Ok(()) => {
+                
+            }
+            Err(err) => {
+                match err.to_string().as_str() {
+                    "204" => {
+                        println!("Incorrect data for request");
+                    }
+                    "400" => {
+                        println!("Wrong credentials")
+                    }
+                    _ => {
+                        println!("Server is dead");
+                    }
+                }
+            }                    
+        }
     }
     fn update(&mut self, ctx: &eframe::egui::Context, frame: &mut eframe::Frame) {
+        
+
         egui::CentralPanel::default().show(ctx, |ui| {
             if self.current_user.is_some() {
                 self.draw_tasks_ui(ui, ctx);
+
+                
+                if (Local::now() - self.prev_check).num_seconds() >= 30 {
+                    self.prev_check = Local::now();
+                    
+
+                    let url = "http://localhost:3000/taskspost";
+                    let mut query_params: HashMap<String, String> = HashMap::new();
+                    query_params.insert("username".to_string(), self.current_user.clone().unwrap());
+                    let s = serde_json::to_string(&self.tasks).unwrap();
+                    self.rt.spawn(async move {
+                        post_request_json(url, query_params, s).await.unwrap();
+                    });
+                }
+
             } else {
                 self.draw_auth_ui(ui, ctx);
                 
             }
+           
+            
         });
     }
 }
@@ -128,44 +182,29 @@ async fn post_request(url : &str, query : HashMap<String, String>) -> Result<(),
         return Err("0".into())
     }
 }
+async fn post_request_json(url : &str, query : HashMap<String, String>, js : String) -> Result<(), Box<dyn std::error::Error>> {
+    let client = reqwest::Client::new();
+
+    let response = client.post(url).header("Content-Type", "application/json").query(&query).body(js).send().await?;
+
+    if response.status().is_success() {
+        return Ok(())
+    } else if response.status().as_u16() == 204 {
+        //To handle incorrect data sent
+        return Err("204".into());
+    } else if response.status().as_u16() == 400 {
+        //Handle wrong creds sent
+        return Err("400".into());
+    } else {
+        //Other kinda errors if they magically appear
+        return Err("0".into())
+    }
+}
 
 impl MyApp {
     
     fn remove_task(&mut self, idx: usize) {
-        
-        
-        let username = self.current_user.clone().unwrap();
-        let title = self.tasks[idx].name.clone();
-
-        println!("Task removing {}", title);
-        
-        let url = "http://localhost:3000/taskremove";
-        let mut query_params = HashMap::new();
-        query_params.insert("username".to_string(), username);
-        query_params.insert("title".to_string(), title);
-        self.rt.spawn(async move {
-            match post_request(url, query_params).await {
-                Ok(()) => {
-                    println!("Task successfully removed");
-                    
-                }
-                Err(err) => {
-                    println!("{}", err.to_string());
-                    match err.to_string().as_str() {
-                        "204" => {
-                            println!("Incorrect data for request");
-                        }
-                        "400" => {
-                            println!("Wrong credentials")
-                        }
-                        _ => {
-                            println!("Server is dead");
-                        }
-                    }
-                    
-                }      
-            }
-        });
+    
         self.tasks.remove(idx);
         
     }
@@ -174,71 +213,10 @@ impl MyApp {
         let localized_time : DateTime<Local> = DateTime::from(now);
         self.tasks[idx].comments.push(Comment { text: self.comment_input.clone(), created_at: localized_time.to_string()});
 
-        let url = "http://localhost:3000/comadd";
-        let mut query_params = HashMap::new();
-        query_params.insert("username".to_string(), self.current_user.clone().unwrap());
-        query_params.insert("title".to_string(), self.tasks[idx].name.clone());
-        query_params.insert("comment".to_string(), self.comment_input.clone());
-
-        self.rt.spawn(async move {
-            match post_request(url, query_params).await {
-                Ok(()) => {
-                    println!("Comment successfully added");
-                    
-                }
-                Err(err) => {
-                    println!("{}", err.to_string());
-                    match err.to_string().as_str() {
-                        "204" => {
-                            println!("Incorrect data for request");
-                        }
-                        "400" => {
-                            println!("Wrong credentials")
-                        }
-                        _ => {
-                            println!("Server is dead");
-                        }
-                    }
-                    
-                }      
-            }
-        });
     }
     fn update_task(&mut self, idx: usize, status : TaskStatus) {
 
         self.tasks[idx].status = status.clone();
-
-        let username = self.current_user.clone().unwrap();
-        let title = self.tasks[idx].name.clone();
-
-        let url = "http://localhost:3000/taskupdate";
-        let mut query_params = HashMap::new();
-        query_params.insert("username".to_string(), username);
-        query_params.insert("title".to_string(), title);
-        query_params.insert("status".to_string(), status.to_string());
-        self.rt.spawn(async move {
-            match post_request(url, query_params).await {
-                Ok(()) => {
-                    println!("Task successfully updated");
-                }
-                Err(err) => {
-                    println!("{}", err.to_string());
-                    match err.to_string().as_str() {
-                        "204" => {
-                            println!("Incorrect data for request");
-                        }
-                        "400" => {
-                            println!("Wrong credentials")
-                        }
-                        _ => {
-                            println!("Server is dead");
-                        }
-                    }
-                    
-                }   
-            }
-        });
-
 
     }
     fn add_task(&mut self, name : String) {
@@ -246,39 +224,8 @@ impl MyApp {
             println!("Error adding task");
             return;
         }
-        
-        self.tasks.insert(0, Task { name: name.clone(), status: TaskStatus::NotCompleted, comments : vec![] });
-        let title = name.clone();
-        println!("TASK ADDING {}", title);
-        let username = self.current_user.clone().unwrap();
 
-        let url = "http://localhost:3000/taskadd";
-        let mut query_params = HashMap::new();
-        query_params.insert("username".to_string(), username);
-        query_params.insert("title".to_string(), title);
-        self.rt.spawn(async move {
-            match post_request(url, query_params).await {
-                Ok(()) => {
-                    println!("Task successfully added");
-                }
-                Err(err) => {
-                    println!("{}", err.to_string());
-                    match err.to_string().as_str() {
-                        "204" => {
-                            println!("Incorrect data for request");
-                        }
-                        "400" => {
-                            println!("Wrong credentials")
-                        }
-                        _ => {
-                            println!("Server is dead");
-                        }
-                    }
-                    
-                }      
-            }
-        });
-        
+        self.tasks.push(Task { name: name.clone(), status: TaskStatus::NotCompleted, comments : vec![] });
     }
     
     fn handle_input(&mut self, ui : &mut Ui, ctx: &eframe::egui::Context) {
@@ -311,8 +258,6 @@ impl MyApp {
                 let txt = response.text().await.unwrap();
                 let tsks : Vec<Task> = serde_json::from_str(&txt).unwrap();
                 self.tasks.extend(tsks);
-                self.tasks.reverse();
-
 
             } else if response.status().as_u16() == 204 {
               
@@ -353,78 +298,86 @@ impl MyApp {
     fn display_tasks(&mut self, ui: &mut Ui) {
        
         egui::ScrollArea::new([false, true]).show(ui, |ui| {
-            for idx in (0..self.tasks.len()).rev() {
-                ui.horizontal(|ui| {
-                    // Display task name and status in the card header
-                    ui.add_space(30.0);
-                    let text = RichText::new(&self.tasks[idx].name)
-                        .size(16.0)
-                        .color(Color32::from_rgb(200, 200, 200));
-                    ui.label(text);
-    
-                    // Display a dropdown to change task status
-                    ComboBox::from_id_salt(idx)
-                        .selected_text(self.tasks[idx].status.to_string())
-                        .show_ui(ui, |ui| {
-                            ui.selectable_value(&mut self.tasks[idx].status, TaskStatus::Completed, "Completed");
-                            ui.selectable_value(&mut self.tasks[idx].status, TaskStatus::InProgress, "In Progress");
-                            ui.selectable_value(&mut self.tasks[idx].status, TaskStatus::NotCompleted, "Not Completed");
-                        });
-    
-                    // Add a remove button on the right
-                    if ui.button("X").clicked() {
-                        self.remove_task(idx);
-                        
-                    }
-                });
-    
-                // Add collapsible card to open task details
-               
-                egui::CollapsingHeader::new("Comments").id_salt(idx + 1000)
-                    .default_open(false)
-                    .show(ui, |ui| {
-                      
-                        ui.add_space(10.0);
-                        
-                        
-
-                        
-                        if idx < self.tasks.len() {
-                            for i in 0..self.tasks[idx].comments.len() {
-                                let cur_time = &self.tasks[idx].comments[i].created_at.clone();
-    
-                                ui.horizontal(|ui| {
-                                    ui.label(self.tasks[idx].comments[i].clone().text);
-                                    ui.add_space(15.0);
-    
-                                    let text = make_rich_text(if cur_time.contains(".") {&cur_time[..cur_time.rfind(".").unwrap()]} else {&cur_time[..cur_time.rfind(" ").unwrap()]}, 10.0.into());
-                                    ui.label(text);
-                                });
-    
-                               
-                            }
-                        }
-                        
-                        
-                       
-                        ui.horizontal(|ui| {
+            for idx in 0..self.tasks.len() {
+                if idx < self.tasks.len() {
+                    ui.horizontal(|ui| {
+                        // Display task name and status in the card header
+                        ui.add_space(30.0);
+                        let text = RichText::new(&self.tasks[idx].name)
+                            .size(16.0)
+                            .color(Color32::from_rgb(200, 200, 200));
+                        ui.label(text);
+        
+                        // Display a dropdown to change task status
+                        let prev_status = self.tasks[idx].status.clone();
+                        ComboBox::from_id_salt(idx)
+                            .selected_text(self.tasks[idx].status.to_string())
+                            .show_ui(ui, |ui| {
+                                ui.selectable_value(&mut self.tasks[idx].status, TaskStatus::Completed, "Completed");
+                                ui.selectable_value(&mut self.tasks[idx].status, TaskStatus::InProgress, "In Progress");
+                                ui.selectable_value(&mut self.tasks[idx].status, TaskStatus::NotCompleted, "Not Completed");
+                                if prev_status != self.tasks[idx].status.clone() {
+                                    self.update_task(idx, self.tasks[idx].status.clone());
+                                }
+                                
+                            });
+        
+                        // Add a remove button on the right
+                        if ui.button("X").clicked() {
+                            self.remove_task(idx);
                             
-                            ui.text_edit_singleline(&mut self.comment_input);
-                            let bt = egui::Button::new("Add comment").rounding(70.0);
-                            if ui.add(bt).clicked() {
-                                self.add_comment(idx);
-                                self.comment_input.clear();
-                            }
-                        });
+                        }
                     });
-    
-                ui.separator();
+        
+                    // Add collapsible card to open task details
+                   
+                    egui::CollapsingHeader::new("Comments").id_salt(idx + 1000)
+                        .default_open(false)
+                        .show(ui, |ui| {
+                          
+                            ui.add_space(10.0);
+     
+                            if idx < self.tasks.len() {
+                                for i in 0..self.tasks[idx].comments.len() {
+                                    let cur_time = &self.tasks[idx].comments[i].created_at.clone();
+        
+                                    ui.horizontal(|ui| {
+                                        ui.label(self.tasks[idx].comments[i].clone().text);
+                                        ui.add_space(15.0);
+        
+                                        let text = make_rich_text(if cur_time.contains(".") {&cur_time[..cur_time.rfind(".").unwrap()]} else {&cur_time[..cur_time.rfind(" ").unwrap()]}, 10.0.into());
+                                        ui.label(text);
+                                    });
+        
+                                   
+                                }
+                            }
+                            
+                            
+                           
+                            ui.horizontal(|ui| {
+                                
+                                ui.text_edit_singleline(&mut self.comment_input);
+                                let bt = egui::Button::new("Add comment").rounding(70.0);
+                                if ui.add(bt).clicked() {
+                                    self.add_comment(idx);
+                                    self.comment_input.clear();
+                                }
+                            });
+                        });
+        
+                    ui.separator();
+                }
+                
             }
         });
     }
     
     
     fn draw_tasks_ui(&mut self, ui : &mut Ui, ctx: &eframe::egui::Context) {
+        
+
+
         //Heading
         ui.heading(make_rich_text("TODO List", None));
         ui.add_space(30.0);
@@ -479,7 +432,7 @@ impl MyApp {
                 let rt = tokio::runtime::Runtime::new().unwrap();
 
                 let url = "http://localhost:3000/login";
-                let mut query_params = HashMap::new();
+                let mut query_params: HashMap<String, String> = HashMap::new();
                 query_params.insert("name".to_string(), self.login.clone());
                 query_params.insert("password".to_string(), self.password.clone());
                 match rt.block_on(get_request(url, &query_params)) {

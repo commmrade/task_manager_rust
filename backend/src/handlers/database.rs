@@ -88,72 +88,7 @@ impl Db
             }
         }
     }
-    pub async fn add_task(&self, username : String, title : String) -> Result<(), sqlx::Error> {
-
-        match self.user_exists(username.clone()).await {
-            Ok((b_exists, id)) => {
-                if b_exists && !self.task_exists(username, title.clone()).await.unwrap().0 {
-                    println!("Adding task");
-                    sqlx::query("INSERT INTO tasks (user_id, title, status) VALUES (?, ?, ?)")
-                    .bind(id)
-                    .bind(title)
-                    .bind("Not Completed".to_string())
-                    .execute(&self.pool).await?;
-                } else {
-                    return Err(sqlx::Error::AnyDriverError("User does not exist".into()));
-                }
-            }
-            Err(why) => {
-                println!("Adding task error");
-                return Err(why);
-            }
-        }
-
-
-        Ok(())
-    }
-    pub async fn remove_task(&self, username : String, title : String) -> Result<(), sqlx::Error> {
-        match self.task_exists(username.clone(), title.clone()).await {
-            Ok((b_exists, id)) => {
-                if b_exists {
-                    sqlx::query("DELETE FROM tasks WHERE (title = ? AND user_id = ?)")
-                    .bind(title)
-                    .bind(self.user_exists(username).await.unwrap().1)
-                    .execute(&self.pool).await?;
-                } else {
-                    return Err(sqlx::Error::AnyDriverError("Task does not exist".into()))
-                }
-            }
-            Err(why) => {
-                println!("Removing task error");
-                return Err(why);
-            }
-        }
-
-        Ok(())
-    }
-    pub async fn update_task(&self, username : String, title : String, status : String) -> Result<(), sqlx::Error> {
-
-        match self.task_exists(username.clone(), title.clone()).await {
-            Ok((b_exists, id)) => {
-                if b_exists {
-                    sqlx::query("UPDATE tasks SET status = ? WHERE (user_id = ? AND title = ?)")
-                    .bind(status.to_string())
-                    .bind(self.user_exists(username).await.unwrap().1)
-                    .bind(title)
-                    .execute(&self.pool).await?;
-                } else {
-                    return Err(sqlx::Error::AnyDriverError("Task does not exist".into()))
-                }
-            }
-            Err(why) => {
-                println!("Removing task error");
-                return Err(why);
-            }
-        }
-
-        Ok(())
-    }
+    
     pub async fn fetch_comments(&self, username : String, title : String, username_id : i32, task_id : i32) -> Result<Vec<Comment>, sqlx::Error> {
         let mut result : Vec<Comment> = Vec::new();
         let rows = sqlx::query("SELECT text, created_at FROM comments WHERE (user_id = ? AND task_id = ?)")
@@ -203,6 +138,49 @@ impl Db
             }
         }
     }
+    pub async fn add_task(&self, username : String, task : Task) -> Result<(), sqlx::Error> {
+        match self.user_exists(username.clone()).await {
+            Ok((b_exists, id_u)) => {
+                match self.task_exists(username.clone(), task.name.clone()).await {
+                    Ok((exists, id_t)) => {
+                        
+                        if exists {
+                            sqlx::query("DELETE FROM tasks WHERE (user_id = ?)")
+                            .bind(id_u)
+                            .execute(&self.pool).await?;
+
+                            sqlx::query("INSERT INTO tasks (user_id, title, status) VALUES (?, ?, ?)")
+                            .bind(id_u)
+                            .bind(task.name.clone())
+                            .bind(task.status.to_string())
+                            .execute(&self.pool).await?;
+                        } else {
+                            sqlx::query("INSERT INTO tasks (user_id, title, status) VALUES (?, ?, ?)")
+                            .bind(id_u)
+                            .bind(task.name.clone())
+                            .bind(task.status.to_string())
+                            .execute(&self.pool).await?;
+                        }
+
+                        for comm in task.comments {
+                            self.add_comment(username.clone(), task.name.clone(), comm.text).await.unwrap();
+                        }
+                    }
+                    Err(why) => {
+                        println!("Why {}", why);
+                        return Err(why)
+                    }
+                }
+
+
+                Ok(())
+            }
+            Err(why) => {
+                println!("Fetching error {}", why);
+                return Err(why)
+            }
+        }
+    }
     pub async fn add_comment(&self, username : String, title : String, comment : String) -> Result<(), sqlx::Error> {
         match self.user_exists(username.clone()).await {
             Ok((b_exists, id)) => {
@@ -231,4 +209,5 @@ impl Db
             }
         }
     }
+    
 }
