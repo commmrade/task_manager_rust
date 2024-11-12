@@ -118,12 +118,13 @@ impl Db
 
     }
     pub async fn fetch_tasks(&self, username : String) -> Result<Vec<Category>, sqlx::Error> {
+        println!("fetching tasks");
         match self.user_exists(username.clone()).await {
             Ok((b_exists, id)) => {
                 if b_exists {
                     let mut cats : HashMap<String, Vec<Task>> = HashMap::new();
                     let mut categories : Vec<Category> = Vec::new();
-                    let rows = sqlx::query("SELECT title, status, category_id, id FROM tasks WHERE user_id = ?")
+                    let rows = sqlx::query("select tasks.title, status, categories.title, tasks.id from tasks inner join categories on tasks.user_id = categories.user_id where tasks.user_id = ?")
                     .bind(id)
                     .fetch_all(&self.pool).await?;
 
@@ -151,7 +152,7 @@ impl Db
                        
                         categories.push(Category { name: category_name, tasks: tasks });
                     }
-
+                    println!("ended fetching");
                     Ok(categories)
                 } else {
                     return Err(sqlx::Error::AnyDriverError("User does not exist".into()))
@@ -251,7 +252,8 @@ impl Db
     pub async fn add_comment(&self, username : String, title : String, comment : String) -> Result<(), sqlx::Error> {
         match self.task_exists(username, title).await {
             Ok((b_exists, task_id)) => {
-                sqlx::query("INSERT INTO comments (task_id, user_id, text) VALUES (?, ?, ?)").bind(task_id)
+                sqlx::query("INSERT INTO comments (task_id, text) VALUES (?, ?)")
+                .bind(task_id)
                 .bind(comment)
                 .execute(&self.pool).await?;
 

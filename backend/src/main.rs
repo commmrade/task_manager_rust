@@ -1,8 +1,8 @@
-use std::{result, str::FromStr, sync::Arc};
+use std::{os::unix::thread, result, str::FromStr, sync::Arc, time::Duration};
 
 mod handlers;
 use axum::{extract::{rejection::{JsonRejection, QueryRejection}, Query, State}, http::StatusCode, routing::{get, post}, Json, Router};
-use handlers::database::{self, Db};
+use handlers::{database::{self, Db}, session_handler::{check_token, make_token}};
 use serde::{Deserialize, Serialize};
 use tokio::runtime::Runtime;
 
@@ -93,13 +93,19 @@ impl AppState {
 
 #[tokio::main]
 async fn main() {
+
+    let tkn = make_token("fuck");
+
+    std::thread::sleep(Duration::from_secs(5));
+    check_token(tkn.as_str()).unwrap();
+
     println!("hello world");
     let app_state = Arc::new(AppState::new("mysql://klewy:root@localhost/task_manager".to_string()).await);
     let app : Router<()> = Router::new()
-    .route("/login", get(login))
+    .route("/login", post(login))
     .route("/register", post(register))
-    .route("/tasksget", get(get_tasks))
-    .route("/taskspost", post(post_tasks))
+    .route("/tasks", get(get_tasks))
+    .route("/tasks", post(post_tasks))
     .with_state(app_state);
  
 
@@ -109,10 +115,9 @@ async fn main() {
 }
 
 
-async fn login(State(appstate) : State<Arc<AppState>>, result : Result<Query<LoginData>, QueryRejection>) -> Result<Json<Resp>, (StatusCode, String)> {
-
+async fn login(State(appstate) : State<Arc<AppState>>, result : Result<Json<LoginData>, JsonRejection>) -> Result<Json<Resp>, (StatusCode, String)> {
     match result {
-        Ok(Query(result)) => {
+        Ok(Json(result)) => {
         
             match appstate.db.login_user(result.name, result.password).await {
                 Ok(()) => {
@@ -131,9 +136,9 @@ async fn login(State(appstate) : State<Arc<AppState>>, result : Result<Query<Log
         }
     }
 }
-async fn register(State(appstate) : State<Arc<AppState>>, result : Result<Query<RegData>, QueryRejection>) -> Result<(), (StatusCode, String)> {
+async fn register(State(appstate) : State<Arc<AppState>>, result : Result<Json<RegData>, JsonRejection>) -> Result<(), (StatusCode, String)> {
     match result {
-        Ok(Query(result)) => {
+        Ok(Json(result)) => {
             if !result.name.is_empty() && !result.password.is_empty() {
                 
                 match appstate.db.add_user(result.name, result.password, result.email).await {

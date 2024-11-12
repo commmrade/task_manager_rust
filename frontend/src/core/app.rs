@@ -1,4 +1,4 @@
-use std::{borrow::{Borrow, BorrowMut}, clone, collections::{HashMap, HashSet}, process::exit, str::FromStr, thread, time::{Duration, SystemTime}};
+use std::{borrow::{Borrow, BorrowMut}, clone, collections::{HashMap, HashSet}, hash::Hash, process::exit, str::FromStr, thread, time::{Duration, SystemTime}};
 
 use chrono::{DateTime, Local, Utc};
 use egui::{Color32, ComboBox, RichText, Ui};
@@ -96,7 +96,7 @@ impl Default for MyApp {
 impl eframe::App for MyApp {
     fn on_exit(&mut self, _gl: Option<&eframe::glow::Context>) {
         println!("Exiting app... {}", self.login);
-        let url = "http://localhost:3000/taskspost";
+        let url = "http://localhost:3000/tasks";
         let mut query_params: HashMap<String, String> = HashMap::new();
         query_params.insert("username".to_string(), self.current_user.clone().unwrap());
         
@@ -134,7 +134,7 @@ impl eframe::App for MyApp {
                     self.prev_check = Local::now();
                     
 
-                    let url = "http://localhost:3000/taskspost";
+                    let url = "http://localhost:3000/tasks";
                     let mut query_params: HashMap<String, String> = HashMap::new();
                     query_params.insert("username".to_string(), self.current_user.clone().unwrap());
                     let s = serde_json::to_string(&self.categories).unwrap();
@@ -173,10 +173,10 @@ async fn get_request(url : &str, query : &HashMap<String, String>) -> Result<(),
         return Err("0".into())
     }
 }
-async fn post_request(url : &str, query : HashMap<String, String>) -> Result<(), Box<dyn std::error::Error>> {
+async fn post_request(url : &str, query : HashMap<String, String>, headers : HashMap<String, String>, body : HashMap<String, String>) -> Result<(), Box<dyn std::error::Error>> {
     let client = reqwest::Client::new();
 
-    let response = client.post(url).query(&query).send().await?;
+    let response = client.post(url).query(&query).send().await?; 
 
     if response.status().is_success() {
         return Ok(())
@@ -265,7 +265,7 @@ impl MyApp {
         
         self.rt.block_on(async {
             let client = reqwest::Client::new();
-            let url = "http://localhost:3000/tasksget";
+            let url = "http://localhost:3000/tasks";
             let mut query_maps = HashMap::new();
 
             query_maps.insert("username", self.current_user.clone().unwrap());
@@ -485,10 +485,10 @@ impl MyApp {
                 let rt = tokio::runtime::Runtime::new().unwrap();
 
                 let url = "http://localhost:3000/login";
-                let mut query_params: HashMap<String, String> = HashMap::new();
-                query_params.insert("name".to_string(), self.login.clone());
-                query_params.insert("password".to_string(), self.password.clone());
-                match rt.block_on(get_request(url, &query_params)) {
+                let mut json_body: HashMap<String, String> = HashMap::new();
+                json_body.insert("name".to_string(), self.login.clone());
+                json_body.insert("password".to_string(), self.password.clone());
+                match rt.block_on(post_request(url, HashMap::new(), HashMap::new(), json_body)) {
                     Ok(()) => {
                         self.current_user = Some(self.login.clone());
                         println!("load all tasks");
@@ -539,11 +539,12 @@ impl MyApp {
                 let rt = tokio::runtime::Runtime::new().unwrap();
 
                 let url = "http://localhost:3000/register";
-                let mut query_params = HashMap::new();
-                query_params.insert("name".to_string(), self.login.clone());
-                query_params.insert("password".to_string(), self.password.clone());
-                query_params.insert("email".to_string(), self.email.clone());
-                match rt.block_on(post_request(url, query_params)) {
+                
+                let mut json_body: HashMap<String, String> = HashMap::new();
+                json_body.insert("name".to_string(), self.login.clone());
+                json_body.insert("password".to_string(), self.password.clone());
+                json_body.insert("email".to_string(), self.email.clone());
+                match rt.block_on(post_request(url, HashMap::new(), HashMap::new(), json_body)) {
                     Ok(()) => {
                         self.current_user = Some(self.login.clone());
                         self.load_tasks();
