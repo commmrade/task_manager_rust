@@ -8,7 +8,7 @@ use tokio::runtime::Runtime;
 
 
 
-#[derive(Serialize, Deserialize, PartialEq, Debug)]
+#[derive(Serialize, Deserialize, PartialEq, Debug, Clone)]
 enum TaskStatus {
     Completed,
     NotCompleted,
@@ -68,11 +68,16 @@ struct Comment {
     created_at: String
 }
 
-#[derive(Serialize, Deserialize, Debug)]
+#[derive(Serialize, Deserialize, Debug, Clone)]
 struct Task {
     name: String,
     status:  TaskStatus,
     comments : Vec<Comment>
+}
+#[derive(Serialize, Deserialize, Clone, Debug)]
+struct Category {
+    name: String,
+    tasks: Vec<Task>
 }
 
 
@@ -152,7 +157,7 @@ async fn register(State(appstate) : State<Arc<AppState>>, result : Result<Query<
         }
     }
 }
-async fn get_tasks(State(appstate) : State<Arc<AppState>>, result : Result<Query<UserQuery>, QueryRejection>) -> Result<Json<Vec<Task>>, (StatusCode, String)> {
+async fn get_tasks(State(appstate) : State<Arc<AppState>>, result : Result<Query<UserQuery>, QueryRejection>) -> Result<Json<Vec<Category>>, (StatusCode, String)> {
     match result {
         Ok(Query(result)) => {
             if !result.username.is_empty() {
@@ -175,12 +180,12 @@ async fn get_tasks(State(appstate) : State<Arc<AppState>>, result : Result<Query
         }
     }
 }
-async fn post_tasks(State(appstate) : State<Arc<AppState>>, query : Result<Query<UserQuery>, QueryRejection>, result : Result<Json<Vec<Task>>, JsonRejection>) -> Result<(), (StatusCode, String)> {
+async fn post_tasks(State(appstate) : State<Arc<AppState>>, query : Result<Query<UserQuery>, QueryRejection>, result : Result<Json<Vec<Category>>, JsonRejection>) -> Result<(), (StatusCode, String)> {
     match result {
         Ok(Json(result)) => {
             
              for element in result {
-                match appstate.db.add_task(Query(query.as_ref().unwrap()).username.clone(), element).await {
+                match appstate.db.add_category(Query(query.as_ref().unwrap()).username.clone(), element).await {
                     Ok(()) => {
                         
                     }

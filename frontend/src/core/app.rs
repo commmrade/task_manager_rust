@@ -51,10 +51,15 @@ struct Task {
     
 }
 
+#[derive(Serialize, Deserialize, Clone, Debug)]
+struct Category {
+    name: String,
+    tasks: Vec<Task>
+}
 
 
 pub struct MyApp {
-    tasks : Vec<Task>,
+    categories : Vec<Category>,
     can_exit : bool,
     current_user : Option<String>,
     comment_input : String,
@@ -65,6 +70,7 @@ pub struct MyApp {
     email : String,
     exit_window : bool,
     input_text: String,
+    category_input : String,
     rt : Runtime,
     prev_check : DateTime<Local>
 }
@@ -75,8 +81,8 @@ impl Default for MyApp {
 
 
 
-        let app = MyApp {tasks: vec![], can_exit: false, exit_window: false, 
-            input_text: String::new(), current_user: None,
+        let app = MyApp {categories: vec![], can_exit: false, exit_window: false, 
+            input_text: String::new(), category_input: String::new(), current_user: None,
             token: String::new(), login : String::new(), password: String::new(), 
             blogin: true, rt: Runtime::new().unwrap(), email: String::new(), comment_input: String::new(), prev_check: Local::now() };
 
@@ -94,7 +100,7 @@ impl eframe::App for MyApp {
         let mut query_params: HashMap<String, String> = HashMap::new();
         query_params.insert("username".to_string(), self.current_user.clone().unwrap());
         
-        match self.rt.block_on(post_request_json(url, query_params, serde_json::to_string(&self.tasks).unwrap())) {
+        match self.rt.block_on(post_request_json(url, query_params, serde_json::to_string(&self.categories).unwrap())) {
             Ok(()) => {
                 
             }
@@ -114,7 +120,10 @@ impl eframe::App for MyApp {
         }
     }
     fn update(&mut self, ctx: &eframe::egui::Context, frame: &mut eframe::Frame) {
-        
+        let mut visuals = egui::Visuals::dark();
+        visuals.widgets.inactive.bg_fill = Color32::from_gray(30);  // Button background
+        visuals.widgets.hovered.bg_fill = Color32::from_rgb(60, 60, 150);
+        ctx.set_visuals(visuals);
 
         egui::CentralPanel::default().show(ctx, |ui| {
             if self.current_user.is_some() {
@@ -128,7 +137,7 @@ impl eframe::App for MyApp {
                     let url = "http://localhost:3000/taskspost";
                     let mut query_params: HashMap<String, String> = HashMap::new();
                     query_params.insert("username".to_string(), self.current_user.clone().unwrap());
-                    let s = serde_json::to_string(&self.tasks).unwrap();
+                    let s = serde_json::to_string(&self.categories).unwrap();
                     self.rt.spawn(async move {
                         post_request_json(url, query_params, s).await.unwrap();
                     });
@@ -203,29 +212,38 @@ async fn post_request_json(url : &str, query : HashMap<String, String>, js : Str
 
 impl MyApp {
     
-    fn remove_task(&mut self, idx: usize) {
+    fn remove_task(&mut self, idx_task: usize, idx_category : usize) {
     
-        self.tasks.remove(idx);
+        self.categories[idx_category].tasks.remove(idx_task);
+        self.categories[idx_category].tasks.shrink_to_fit();
         
     }
-    fn add_comment(&mut self, idx : usize) {
+    fn add_comment(&mut self, idx_task : usize, idx_category : usize, name : String,) {
         let now = Utc::now();
         let localized_time : DateTime<Local> = DateTime::from(now);
-        self.tasks[idx].comments.push(Comment { text: self.comment_input.clone(), created_at: localized_time.to_string()});
+        self.categories[idx_category].tasks[idx_task].comments.push(Comment { text: name, created_at: localized_time.to_string()});
+        
 
     }
-    fn update_task(&mut self, idx: usize, status : TaskStatus) {
+    fn update_task(&mut self, idx_task : usize, idx_category : usize, status : TaskStatus) {
 
-        self.tasks[idx].status = status.clone();
+        self.categories[idx_category].tasks[idx_task].status = status.clone();
 
     }
-    fn add_task(&mut self, name : String) {
-        if self.tasks.iter().any(|el| el.name == name) {
+    fn add_task(&mut self, name : String, idx_category : usize) {
+        if self.categories[idx_category].tasks.iter().any(|el| el.name == name) {
             println!("Error adding task");
             return;
         }
 
-        self.tasks.push(Task { name: name.clone(), status: TaskStatus::NotCompleted, comments : vec![] });
+        self.categories[idx_category].tasks.push(Task { name: name.clone(), status: TaskStatus::NotCompleted, comments : vec![] });
+    }
+    fn add_category(&mut self, name : String) {
+        if self.categories.iter().any(|el| el.name == name) {
+            println!("Error adding category");
+            return;
+        }
+        self.categories.push(Category { name: name, tasks: vec![] });
     }
     
     fn handle_input(&mut self, ui : &mut Ui, ctx: &eframe::egui::Context) {
@@ -252,12 +270,14 @@ impl MyApp {
 
             query_maps.insert("username", self.current_user.clone().unwrap());
 
-            let response = client.get(url).query(&query_maps).send().await.unwrap();
+            let response = client.get(url).query(&query_maps).body(serde_json::to_string_pretty(&self.categories).unwrap()).send().await.unwrap();
             println!("loading...");
             if response.status().is_success() {
                 let txt = response.text().await.unwrap();
-                let tsks : Vec<Task> = serde_json::from_str(&txt).unwrap();
-                self.tasks.extend(tsks);
+                let tsks : Vec<Category> = serde_json::from_str(&txt).unwrap();
+                // self.tasks.extend(tsks);
+                self.categories = tsks;
+                //todo!()
 
             } else if response.status().as_u16() == 204 {
               
@@ -297,80 +317,113 @@ impl MyApp {
     }
     fn display_tasks(&mut self, ui: &mut Ui) {
        
+        let mut tasks_to_remove = Vec::new();
+        let mut comments_to_add = Vec::new();
+        let mut task_new_name : (String, usize) = (String::new(), 0);
+        let mut category_to_remove : Option<usize> = None;
+
         egui::ScrollArea::new([false, true]).show(ui, |ui| {
-            for idx in 0..self.tasks.len() {
-                if idx < self.tasks.len() {
-                    ui.horizontal(|ui| {
-                        // Display task name and status in the card header
-                        ui.add_space(30.0);
-                        let text = RichText::new(&self.tasks[idx].name)
-                            .size(16.0)
-                            .color(Color32::from_rgb(200, 200, 200));
-                        ui.label(text);
-        
-                        // Display a dropdown to change task status
-                        let prev_status = self.tasks[idx].status.clone();
-                        ComboBox::from_id_salt(idx)
-                            .selected_text(self.tasks[idx].status.to_string())
-                            .show_ui(ui, |ui| {
-                                ui.selectable_value(&mut self.tasks[idx].status, TaskStatus::Completed, "Completed");
-                                ui.selectable_value(&mut self.tasks[idx].status, TaskStatus::InProgress, "In Progress");
-                                ui.selectable_value(&mut self.tasks[idx].status, TaskStatus::NotCompleted, "Not Completed");
-                                if prev_status != self.tasks[idx].status.clone() {
-                                    self.update_task(idx, self.tasks[idx].status.clone());
-                                }
-                                
-                            });
-        
-                        // Add a remove button on the right
-                        if ui.button("X").clicked() {
-                            self.remove_task(idx);
-                            
-                        }
-                    });
-        
-                    // Add collapsible card to open task details
-                   
-                    egui::CollapsingHeader::new("Comments").id_salt(idx + 1000)
-                        .default_open(false)
-                        .show(ui, |ui| {
-                          
-                            ui.add_space(10.0);
-     
-                            if idx < self.tasks.len() {
-                                for i in 0..self.tasks[idx].comments.len() {
-                                    let cur_time = &self.tasks[idx].comments[i].created_at.clone();
-        
-                                    ui.horizontal(|ui| {
-                                        ui.label(self.tasks[idx].comments[i].clone().text);
-                                        ui.add_space(15.0);
-        
-                                        let text = make_rich_text(if cur_time.contains(".") {&cur_time[..cur_time.rfind(".").unwrap()]} else {&cur_time[..cur_time.rfind(" ").unwrap()]}, 10.0.into());
-                                        ui.label(text);
-                                    });
-        
-                                   
-                                }
-                            }
-                            
-                            
-                           
-                            ui.horizontal(|ui| {
-                                
-                                ui.text_edit_singleline(&mut self.comment_input);
-                                let bt = egui::Button::new("Add comment").rounding(70.0);
-                                if ui.add(bt).clicked() {
-                                    self.add_comment(idx);
-                                    self.comment_input.clear();
-                                }
-                            });
-                        });
-        
-                    ui.separator();
-                }
+            for (idx_category, category) in self.categories.iter_mut().enumerate() {
+                ui.horizontal(|ui| {
+                    ui.label(make_rich_text(&category.name, 20.0.into()));
+                    ui.add_space(15.0);
+                    let rem = ui.button("Remove category");
+                    if rem.clicked() {
+                        category_to_remove = idx_category.into();
+                    }
+                });
                 
+               // let idx_c = idx_category.clone();
+
+                
+                ui.horizontal(|ui: &mut Ui| {
+                    ui.text_edit_singleline(&mut self.input_text);
+                    if ui.button("➕ Add Task").clicked() && !self.input_text.is_empty() {
+    
+                        task_new_name.0 = self.input_text.clone();
+                        task_new_name.1 = idx_category;
+
+                        self.input_text.clear(); 
+                    }
+                });
+                
+
+
+                let len_cat = category.tasks.len();
+                for (idx_task, task) in category.tasks.iter_mut().enumerate() {
+                    if idx_task < len_cat {
+                        ui.horizontal(|ui| {
+                            ui.add_space(30.0);
+                            let text = RichText::new(&task.name)
+                                .size(16.0)
+                                .color(Color32::from_rgb(200, 200, 200));
+                            ui.label(text);
+
+                            let prev_status = task.status.clone();
+                            ComboBox::from_id_salt(10 * idx_category + idx_task + 100)
+                                .selected_text(task.status.to_string())
+                                .show_ui(ui, |ui| {
+                                    ui.selectable_value(&mut task.status, TaskStatus::Completed, "Completed");
+                                    ui.selectable_value(&mut task.status, TaskStatus::InProgress, "In Progress");
+                                    ui.selectable_value(&mut task.status, TaskStatus::NotCompleted, "Not Completed");
+                                    if prev_status != task.status.clone() {
+                                        // Handle status change if needed
+                                    }
+                                });
+
+                            if ui.button("❌").clicked() {
+                                tasks_to_remove.push((idx_category, idx_task));
+                            }
+                        });
+
+                        egui::CollapsingHeader::new("Comments")
+                            .id_salt(100 * idx_category + idx_task + 1000)
+                            .default_open(false)
+                            .show(ui, |ui| {
+                                ui.add_space(10.0);
+                                for comment in &task.comments {
+                                    ui.horizontal(|ui| {
+                                        ui.label(comment.text.clone());
+                                        ui.add_space(15.0);
+                                        let time_text = if comment.created_at.contains(".") {
+                                            &comment.created_at[..comment.created_at.rfind(".").unwrap()]
+                                        } else {
+                                            &comment.created_at[..comment.created_at.rfind(" ").unwrap()]
+                                        };
+                                        ui.label(make_rich_text(time_text, 10.0.into()));
+                                    });
+                                }
+
+                                ui.horizontal(|ui| {
+                                    ui.text_edit_singleline(&mut self.comment_input);
+                                    if ui.button("Add comment").clicked() {
+                                        comments_to_add.push((idx_category, idx_task, self.comment_input.clone()));
+                                        self.comment_input.clear();
+                                    }
+                                });
+                            });
+
+                        ui.separator();
+                    }
+                }
             }
         });
+
+        // Perform the deferred actions
+        for (idx_category, idx_task) in tasks_to_remove {
+            self.remove_task(idx_task, idx_category);
+        }
+
+        for (idx_category, idx_task, cum) in comments_to_add {
+            self.add_comment(idx_task, idx_category, cum);
+        }
+        if !task_new_name.0.is_empty() {
+            self.add_task(task_new_name.0, task_new_name.1);
+        }
+        if let Some(idx) = category_to_remove {
+            self.categories.remove(idx);
+            self.categories.shrink_to_fit();
+        } 
     }
     
     
@@ -386,11 +439,11 @@ impl MyApp {
         let add_new_text = RichText::new("Add new task:").size(16.0);
         ui.label(add_new_text);
         ui.horizontal(|ui| {
-            ui.text_edit_singleline(&mut self.input_text);
-            if ui.button("Add new task").clicked() && !self.input_text.is_empty() {
-                self.add_task(self.input_text.clone());
+            ui.text_edit_singleline(&mut self.category_input);
+            if ui.button("Add new category").clicked() {
+                self.add_category(self.category_input.clone());
 
-                self.input_text.clear();
+                self.category_input.clear();
             }
         });
         ui.add_space(20.0);

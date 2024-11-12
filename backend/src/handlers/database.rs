@@ -1,12 +1,12 @@
 
-use std::str::FromStr;
+use std::{collections::HashMap, process::id, str::FromStr};
 
 use chrono::{DateTime, Local, Utc};
 use sqlx::{mysql::MySqlRow, Error, MySql};
 use tokio::runtime::Runtime;
 use sqlx::Row;
 
-use crate::{Comment, Task, TaskStatus};
+use crate::{Category, Comment, Task, TaskStatus};
 
 pub struct Db {
     pool : sqlx::Pool<MySql>
@@ -30,6 +30,20 @@ impl Db
         };
 
         Ok((!row.is_empty(), row.get(0))) //true if not empty
+    }
+    pub async fn category_exists(&self, username : String, title : String) -> Result<(bool, i32), sqlx::Error> {
+        let row = match sqlx::query("SELECT * FROM categories WHERE (title = ? AND user_id = ?)")
+        .bind(title)
+        .bind(self.user_exists(username).await?.1)
+        .fetch_one(&self.pool).await {
+            Ok(row) => row,
+            Err(why) => {
+                println!("Error fetching {}", why);
+                return Ok((false, 0))
+            }
+        };
+        println!("task exists {}", row.is_empty());
+        Ok((!row.is_empty(), row.get(0)))
     }
     pub async fn task_exists(&self, username : String, title : String) -> Result<(bool, i32), sqlx::Error> {
         let row = match sqlx::query("SELECT * FROM tasks WHERE (title = ? AND user_id = ?)")
@@ -89,10 +103,9 @@ impl Db
         }
     }
     
-    pub async fn fetch_comments(&self, username : String, title : String, username_id : i32, task_id : i32) -> Result<Vec<Comment>, sqlx::Error> {
+    pub async fn fetch_comments(&self, task_id : i32) -> Result<Vec<Comment>, sqlx::Error> {
         let mut result : Vec<Comment> = Vec::new();
-        let rows = sqlx::query("SELECT text, created_at FROM comments WHERE (user_id = ? AND task_id = ?)")
-        .bind(username_id)
+        let rows = sqlx::query("SELECT text, created_at FROM comments WHERE (task_id = ?)")
         .bind(task_id)
         .fetch_all(&self.pool).await?;
         
@@ -104,30 +117,42 @@ impl Db
         Ok(result)
 
     }
-    pub async fn fetch_tasks(&self, username : String) -> Result<Vec<Task>, sqlx::Error> {
+    pub async fn fetch_tasks(&self, username : String) -> Result<Vec<Category>, sqlx::Error> {
         match self.user_exists(username.clone()).await {
             Ok((b_exists, id)) => {
                 if b_exists {
-                    let mut tasks : Vec<Task> = Vec::new();
-                    let rows = sqlx::query("SELECT title, status, id FROM tasks WHERE user_id = ?")
+                    let mut cats : HashMap<String, Vec<Task>> = HashMap::new();
+                    let mut categories : Vec<Category> = Vec::new();
+                    let rows = sqlx::query("SELECT title, status, category_id, id FROM tasks WHERE user_id = ?")
                     .bind(id)
                     .fetch_all(&self.pool).await?;
 
                     for row in rows {
-                        let comms = match self.fetch_comments(username.clone(), row.get(1), id, row.get(2)).await {
+
+                        cats.entry(row.get::<String, _>(2))
+                        .or_insert_with(Vec::new) // Creates a new Vec if the key doesn't exist
+                        .push(Task {
+                            name: row.get(0),
+                            status: TaskStatus::from_str(row.get(1)).unwrap(),
+                            comments: vec![],
+                        });
+
+                        let comms = match self.fetch_comments(row.get(3)).await {
                             Ok(vec) => vec, 
                             Err(why) => {
                                 println!("Fetching comments error");
                                 return Err(why);
                             }
                         };
-                        let mut task = Task { name: row.get(0), status: TaskStatus::from_str(row.get(1)).unwrap(),comments: vec![] };
-                        task.comments.extend(comms);
-
-                        tasks.push(task);
+                        cats.entry(row.get::<String, _>(2)).and_modify(|v| v.last_mut().unwrap().comments.extend(comms));
+                        
+                    }
+                    for (category_name, tasks) in cats {
+                       
+                        categories.push(Category { name: category_name, tasks: tasks });
                     }
 
-                    Ok(tasks)
+                    Ok(categories)
                 } else {
                     return Err(sqlx::Error::AnyDriverError("User does not exist".into()))
                 }
@@ -138,33 +163,75 @@ impl Db
             }
         }
     }
-    pub async fn add_task(&self, username : String, task : Task) -> Result<(), sqlx::Error> {
+    pub async fn add_category(&self, username : String, category : Category) -> Result<(), sqlx::Error> {
         match self.user_exists(username.clone()).await {
             Ok((b_exists, id_u)) => {
-                match self.task_exists(username.clone(), task.name.clone()).await {
-                    Ok((exists, id_t)) => {
+                match self.category_exists(username.clone(), category.name.clone()).await {
+                    Ok((exists, id_c)) => {
                         
                         if exists {
-                            sqlx::query("DELETE FROM tasks WHERE (user_id = ?)")
+                            
+                            sqlx::query("DELETE FROM tasks WHERE user_id = ?")
+                            .bind(id_u)
+                            .execute(&self.pool).await?;
+                            sqlx::query("DELETE FROM categories WHERE user_id = ?")
                             .bind(id_u)
                             .execute(&self.pool).await?;
 
-                            sqlx::query("INSERT INTO tasks (user_id, title, status) VALUES (?, ?, ?)")
+                            
+                            sqlx::query("INSERT INTO categories (user_id, title) VALUES (?, ?)")
                             .bind(id_u)
-                            .bind(task.name.clone())
-                            .bind(task.status.to_string())
-                            .execute(&self.pool).await?;
+                            .bind(category.name.clone()).execute(&self.pool).await?;
+
+                            
+                            let row = sqlx::query("SELECT id FROM categories WHERE (user_id = ? AND title = ?)")
+                            .bind(id_u)
+                            .bind(category.name.clone()).fetch_one(&self.pool).await?;
+
+                            
+                            for task in category.tasks {
+                                sqlx::query("INSERT INTO tasks (user_id, title, status, category_id) VALUES (?, ?, ?, ?)")
+                                .bind(id_u)
+                                .bind(task.name.clone())
+                                .bind(task.status.to_string())
+                                .bind(row.get::<i32, _>(0))
+                                .execute(&self.pool).await?;
+                               
+
+                                for comm in task.comments {
+                                    self.add_comment(username.clone(), task.name.clone(), comm.text).await.unwrap();
+                                }   
+                            }
+
+                            
                         } else {
-                            sqlx::query("INSERT INTO tasks (user_id, title, status) VALUES (?, ?, ?)")
+                            sqlx::query("INSERT INTO categories (user_id, title) VALUES (?, ?)")
                             .bind(id_u)
-                            .bind(task.name.clone())
-                            .bind(task.status.to_string())
-                            .execute(&self.pool).await?;
+                            .bind(category.name.clone()).execute(&self.pool).await?;
+                            
+
+
+                            let row = sqlx::query("SELECT id FROM categories WHERE (user_id = ? AND title = ?)")
+                            .bind(id_u)
+                            .bind(category.name.clone()).fetch_one(&self.pool).await?;
+
+                            
+                            for task in category.tasks {
+                                sqlx::query("INSERT INTO tasks (user_id, title, status, category_id) VALUES (?, ?, ?, ?)")
+                                .bind(id_u)
+                                .bind(task.name.clone())
+                                .bind(task.status.to_string())
+                                .bind(row.get::<i32, _>(0))
+                                .execute(&self.pool).await?;
+                               
+
+                                for comm in task.comments {
+                                    self.add_comment(username.clone(), task.name.clone(), comm.text).await.unwrap();
+                                }   
+                            }
                         }
 
-                        for comm in task.comments {
-                            self.add_comment(username.clone(), task.name.clone(), comm.text).await.unwrap();
-                        }
+                        
                     }
                     Err(why) => {
                         println!("Why {}", why);
@@ -182,30 +249,16 @@ impl Db
         }
     }
     pub async fn add_comment(&self, username : String, title : String, comment : String) -> Result<(), sqlx::Error> {
-        match self.user_exists(username.clone()).await {
-            Ok((b_exists, id)) => {
-                if b_exists {
-                    match self.task_exists(username, title).await {
-                        Ok((b_exists, task_id)) => {
-                            sqlx::query("INSERT INTO comments (task_id, user_id, text) VALUES (?, ?, ?)").bind(task_id)
-                            .bind(id)
-                            .bind(comment)
-                            .execute(&self.pool).await?;
+        match self.task_exists(username, title).await {
+            Ok((b_exists, task_id)) => {
+                sqlx::query("INSERT INTO comments (task_id, user_id, text) VALUES (?, ?, ?)").bind(task_id)
+                .bind(comment)
+                .execute(&self.pool).await?;
 
-                            Ok(())
-                        }
-                        Err(why) => {
-                            return Err(sqlx::Error::AnyDriverError("Task does not exist".into()))
-                        }
-                    }
-                   
-                } else {
-                    return Err(sqlx::Error::AnyDriverError("User does not exist".into()))
-                }
+                Ok(())
             }
             Err(why) => {
-                println!("Fetching error {}", why);
-                return Err(why)
+                return Err(sqlx::Error::AnyDriverError("Task does not exist".into()))
             }
         }
     }
