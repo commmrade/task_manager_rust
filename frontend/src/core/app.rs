@@ -2,6 +2,7 @@ use std::{borrow::{Borrow, BorrowMut}, clone, collections::{HashMap, HashSet}, h
 
 use chrono::{DateTime, Local, Utc};
 use egui::{Color32, ComboBox, RichText, Ui};
+use reqwest::header::{HeaderMap, HeaderValue};
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 use tokio::runtime::Runtime;
@@ -100,7 +101,10 @@ impl eframe::App for MyApp {
         let mut query_params: HashMap<String, String> = HashMap::new();
         query_params.insert("username".to_string(), self.current_user.clone().unwrap());
         
-        match self.rt.block_on(post_request_json(url, query_params, serde_json::to_string(&self.categories).unwrap())) {
+        let mut headers = HeaderMap::new();
+        headers.insert("Content-Type", HeaderValue::from_str("application/json").unwrap());
+
+        match self.rt.block_on(post_request_json(url, query_params, headers, serde_json::to_string(&self.categories).unwrap())) {
             Ok(()) => {
                 
             }
@@ -138,8 +142,12 @@ impl eframe::App for MyApp {
                     let mut query_params: HashMap<String, String> = HashMap::new();
                     query_params.insert("username".to_string(), self.current_user.clone().unwrap());
                     let s = serde_json::to_string(&self.categories).unwrap();
+
+                    let mut headers : HeaderMap = HeaderMap::new();
+                    headers.insert("Content-Type", HeaderValue::from_str("application/json").unwrap());
+
                     self.rt.spawn(async move {
-                        post_request_json(url, query_params, s).await.unwrap();
+                        post_request_json(url, query_params, headers, s).await.unwrap();
                     });
                 }
 
@@ -191,10 +199,10 @@ async fn post_request(url : &str, query : HashMap<String, String>, headers : Has
         return Err("0".into())
     }
 }
-async fn post_request_json(url : &str, query : HashMap<String, String>, js : String) -> Result<(), Box<dyn std::error::Error>> {
+async fn post_request_json(url : &str, query : HashMap<String, String>, headers : HeaderMap, js : String) -> Result<(), Box<dyn std::error::Error>> {
     let client = reqwest::Client::new();
 
-    let response = client.post(url).header("Content-Type", "application/json").query(&query).body(js).send().await?;
+    let response = client.post(url).headers(headers).query(&query).body(js).send().await?;
 
     if response.status().is_success() {
         return Ok(())
@@ -275,7 +283,7 @@ impl MyApp {
             if response.status().is_success() {
                 let txt = response.text().await.unwrap();
                 let tsks : Vec<Category> = serde_json::from_str(&txt).unwrap();
-                // self.tasks.extend(tsks);
+            
                 self.categories = tsks;
                 //todo!()
 
@@ -485,10 +493,13 @@ impl MyApp {
                 let rt = tokio::runtime::Runtime::new().unwrap();
 
                 let url = "http://localhost:3000/login";
-                let mut json_body: HashMap<String, String> = HashMap::new();
-                json_body.insert("name".to_string(), self.login.clone());
-                json_body.insert("password".to_string(), self.password.clone());
-                match rt.block_on(post_request(url, HashMap::new(), HashMap::new(), json_body)) {
+                
+                let login_data = LoginData{name: self.login.clone(), password: self.password.clone()};
+                
+                let mut headers = HeaderMap::new();
+                headers.insert("Content-Type", HeaderValue::from_str("application/json").unwrap());
+
+                match rt.block_on(post_request_json(url, HashMap::new(), headers, serde_json::to_string(&login_data).unwrap())) {
                     Ok(()) => {
                         self.current_user = Some(self.login.clone());
                         println!("load all tasks");
@@ -540,11 +551,12 @@ impl MyApp {
 
                 let url = "http://localhost:3000/register";
                 
-                let mut json_body: HashMap<String, String> = HashMap::new();
-                json_body.insert("name".to_string(), self.login.clone());
-                json_body.insert("password".to_string(), self.password.clone());
-                json_body.insert("email".to_string(), self.email.clone());
-                match rt.block_on(post_request(url, HashMap::new(), HashMap::new(), json_body)) {
+                let mut headers: HeaderMap = HeaderMap::new();
+                headers.insert("Content-Type", HeaderValue::from_str("application/json").unwrap());
+
+                let reg_d = RegData{email: self.email.clone(), name: self.login.clone(), password: self.password.clone()};
+
+                match rt.block_on(post_request_json(url, HashMap::new(), headers, serde_json::to_string(&reg_d).unwrap())) {
                     Ok(()) => {
                         self.current_user = Some(self.login.clone());
                         self.load_tasks();
@@ -571,4 +583,15 @@ impl MyApp {
 
 
     }
+}
+#[derive(Deserialize, Serialize)]
+struct LoginData {
+    name: String,
+    password: String
+}
+#[derive(Deserialize, Serialize)]
+struct RegData {
+    name: String,
+    password: String,
+    email : String
 }
