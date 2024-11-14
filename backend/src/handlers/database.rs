@@ -123,7 +123,6 @@ impl Db
                 if b_exists {
                     let mut cats : HashMap<String, Vec<Task>> = HashMap::new();
                     let mut categories : Vec<Category> = Vec::new();
-                    println!("here");
                    
 
                     let task_rows = sqlx::query("SELECT tasks.title, tasks.status, tasks.id, categories.title FROM tasks LEFT JOIN categories on tasks.category_id = categories.id WHERE tasks.user_id = ?").bind(id)

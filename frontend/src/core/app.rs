@@ -79,114 +79,24 @@ pub struct MyApp {
 
 impl Default for MyApp {
     fn default() -> Self {
-
-
-
         let app = MyApp {categories: vec![], can_exit: false, exit_window: false, 
             input_text: String::new(), category_input: String::new(), current_user: None,
             token: String::new(), login : String::new(), password: String::new(), 
             blogin: true, rt: Runtime::new().unwrap(), email: String::new(), comment_input: String::new(), prev_check: Local::now() };
-
-        
-        
-
         app
     }
 }
 
-impl eframe::App for MyApp {
-    fn on_exit(&mut self, _gl: Option<&eframe::glow::Context>) {
-        println!("Exiting app... {}", self.login);
-        let url = "http://localhost:3000/tasks";
-        let mut query_params: HashMap<String, String> = HashMap::new();
-        query_params.insert("username".to_string(), self.current_user.clone().unwrap());
-        
-        let mut headers = HeaderMap::new();
-        headers.insert("Content-Type", HeaderValue::from_str("application/json").unwrap());
-        headers.insert("Authentication", HeaderValue::from_str(&self.token).unwrap());
-        
-        match self.rt.block_on(post_request_json(url, query_params, headers, serde_json::to_string_pretty(&self.categories).unwrap())) {
-            Ok(_txt) => {
-                
-            }
-            Err(err) => {
-                match err.to_string().as_str() {
-                    "204" => {
-                        println!("Incorrect data for request");
-                    }
-                    "400" => {
-                        println!("Wrong credentials")
-                    }
-                    "401" => {
-                        println!("Wrong token")
-                    }
-                    _ => {
-                        println!("Server is dead");
-                    }
-                }
-            }                    
-        }
-    }
-    fn update(&mut self, ctx: &eframe::egui::Context, frame: &mut eframe::Frame) {
-        let mut visuals = egui::Visuals::dark();
-        visuals.widgets.inactive.bg_fill = Color32::from_gray(30);  // Button background
-        visuals.widgets.hovered.bg_fill = Color32::from_rgb(60, 60, 150);
-        ctx.set_visuals(visuals);
-
-        egui::CentralPanel::default().show(ctx, |ui| {
-            if self.current_user.is_some() {
-                self.draw_tasks_ui(ui, ctx);
-
-                
-                if (Local::now() - self.prev_check).num_seconds() >= 30 {
-                    self.prev_check = Local::now();
-                    
-
-                    let url = "http://localhost:3000/tasks";
-                    let mut query_params: HashMap<String, String> = HashMap::new();
-                    query_params.insert("username".to_string(), self.current_user.clone().unwrap());
-                    let s = serde_json::to_string(&self.categories).unwrap();
-
-                    let mut headers : HeaderMap = HeaderMap::new();
-                    headers.insert("Content-Type", HeaderValue::from_str("application/json").unwrap());
-                    headers.insert("Authentication", HeaderValue::from_str(&self.token).unwrap());
-                   
-                    
-                    self.rt.spawn(async move {
-                        match post_request_json(url, query_params, headers, s).await {
-                            Ok(err) => {
-                                if err == "401" {
-                                    eprintln!("Token unauthorized");
-                                    exit(-1);
-                                }
-                            }
-                            Err(why) => {
-                                println!("Saving tasks error: {}", why);
-                            }
-
-                        }
-                    });
-                }
-
-            } else {
-                self.draw_auth_ui(ui, ctx);
-                
-            }
-           
-            
-        });
-    }
-}
 fn make_rich_text(str : &str, font_size: Option<f32>) -> RichText {
     RichText::new(str).size(font_size.unwrap_or(16.0))
 }
-async fn get_request(url : &str, query : &HashMap<String, String>) -> Result<(), Box<dyn std::error::Error>> {
+async fn get_request(url : &str, query : &HashMap<String, String>, headers : HeaderMap) -> Result<String, Box<dyn std::error::Error>> {
     let client = reqwest::Client::new();
 
-    let response = client.get(url).query(query).send().await?;
+    let response = client.get(url).headers(headers).query(query).send().await?;
 
     if response.status().is_success() {
-        return Ok(())
+        return Ok(response.text().await?)
     } else if response.status().as_u16() == 204 {
         //To handle incorrect data sent
         return Err("204".into());
@@ -239,12 +149,97 @@ async fn post_request_json(url : &str, query : HashMap<String, String>, headers 
     }
 }
 
+
+impl eframe::App for MyApp {
+    fn on_exit(&mut self, _gl: Option<&eframe::glow::Context>) {
+        println!("Exiting app... {}", self.login);
+        let url = "http://localhost:3000/tasks";
+        let mut query_params: HashMap<String, String> = HashMap::new();
+        query_params.insert("username".to_string(), self.current_user.clone().unwrap());
+        
+        let mut headers = HeaderMap::new();
+        headers.insert("Content-Type", HeaderValue::from_str("application/json").unwrap());
+        headers.insert("Authentication", HeaderValue::from_str(&self.token).unwrap());
+        
+        match self.rt.block_on(post_request_json(url, query_params, headers, serde_json::to_string_pretty(&self.categories).unwrap())) {
+            Ok(_txt) => {
+                
+            }
+            Err(err) => {
+                match err.to_string().as_str() {
+                    "204" => {
+                        println!("Incorrect data for request");
+                    }
+                    "400" => {
+                        println!("Wrong credentials")
+                    }
+                    "401" => {
+                        println!("Wrong token")
+                    }
+                    _ => {
+                        println!("Server is dead");
+                    }
+                }
+            }                    
+        }
+    }
+    fn update(&mut self, ctx: &eframe::egui::Context, frame: &mut eframe::Frame) {
+        let mut visuals = egui::Visuals::dark();
+        visuals.widgets.inactive.bg_fill = Color32::from_gray(30);  // Button background
+        visuals.widgets.hovered.bg_fill = Color32::from_rgb(60, 60, 150);
+        ctx.set_visuals(visuals);
+
+        egui::CentralPanel::default().show(ctx, |ui| {
+            if self.current_user.is_some() {
+                self.draw_tasks_ui(ui, ctx);
+
+                
+                if (Local::now() - self.prev_check).num_seconds() >= 30 { // If 30 seconds have passed since the last auto-update
+                    self.prev_check = Local::now();
+                    
+
+                    let url = "http://localhost:3000/tasks";
+                    let mut query_params: HashMap<String, String> = HashMap::new();
+                    query_params.insert("username".to_string(), self.current_user.clone().unwrap());
+                    let s = serde_json::to_string(&self.categories).unwrap();
+
+                    let mut headers : HeaderMap = HeaderMap::new();
+                    headers.insert("Content-Type", HeaderValue::from_str("application/json").unwrap());
+                    headers.insert("Authentication", HeaderValue::from_str(&self.token).unwrap());
+                   
+                    
+                    self.rt.spawn(async move {
+                        match post_request_json(url, query_params, headers, s).await {
+                            Ok(err) => {
+                                if err == "401" {
+                                    eprintln!("Token unauthorized");
+                                    exit(-1);
+                                }
+                            }
+                            Err(why) => {
+                                println!("Saving tasks error: {}", why);
+                            }
+
+                        }
+                    });
+                }
+
+            } else {
+                self.draw_auth_ui(ui, ctx);
+                
+            }
+           
+            
+        });
+    }
+}
+
 impl MyApp {
     
     fn remove_task(&mut self, idx_task: usize, idx_category : usize) {
     
         self.categories[idx_category].tasks.remove(idx_task);
-        self.categories[idx_category].tasks.shrink_to_fit();
+        self.categories[idx_category].tasks.shrink_to_fit(); // Deallocating not needed memory
         
     }
     fn add_comment(&mut self, idx_task : usize, idx_category : usize, name : String,) {
@@ -292,34 +287,29 @@ impl MyApp {
         let usrname = self.login.clone();
         println!("Username to load tasks: {}", &usrname);
         
-        self.rt.block_on(async {
-            let client = reqwest::Client::new();
-            let url = "http://localhost:3000/tasks";
-            let mut query_maps = HashMap::new();
+        let client = reqwest::Client::new();
+        let url = "http://localhost:3000/tasks";
+        let mut query_maps: HashMap<String, String> = HashMap::new();
 
-            query_maps.insert("username", self.current_user.clone().unwrap());
+        query_maps.insert("username".to_string(), self.current_user.clone().unwrap());
 
-            let response = client.get(url).query(&query_maps).header("Authentication", self.token.clone()).body(serde_json::to_string_pretty(&self.categories).unwrap()).send().await.unwrap();
-            println!("loading...");
-            if response.status().is_success() {
-                let txt = response.text().await.unwrap();
-                let tsks : Vec<Category> = serde_json::from_str(&txt).unwrap();
-            
-                self.categories = tsks;
-                //todo!()
+        let mut headers = HeaderMap::new();
+        headers.insert("Authentication", HeaderValue::from_str(&self.token).unwrap());
 
-            } else if response.status().as_u16() == 204 {
-              
-            } else if response.status().as_u16() == 400 {
-                
-            } else if response.status().as_u16() == 401 {
-                println!("TOKEN ERROR\n");
-                exit(-1);
-            } else {
-                 //Other kinda errors if they magically appear
+        match self.rt.block_on(get_request(url, &query_maps, headers)) {
+            Ok(txt) => {
+                let cats : Vec<Category> = serde_json::from_str(&txt).unwrap();
+                self.categories = cats;
             }
+            Err(why) => {
+                if why.to_string().as_str() == "401" {
+                    println!("Invalid token");
+                    exit(-1);
+                }
+                println!("Loading task error: {}", why);
+            }
+        }
 
-        })
     }
 
 
@@ -356,6 +346,7 @@ impl MyApp {
 
         egui::ScrollArea::new([false, true]).show(ui, |ui| {
             for (idx_category, category) in self.categories.iter_mut().enumerate() {
+
                 ui.horizontal(|ui| {
                     ui.label(make_rich_text(&category.name, 20.0.into()));
                     ui.add_space(15.0);
@@ -364,10 +355,7 @@ impl MyApp {
                         category_to_remove = idx_category.into();
                     }
                 });
-                
-               // let idx_c = idx_category.clone();
-
-                
+                    
                 ui.horizontal(|ui: &mut Ui| {
                     ui.text_edit_singleline(&mut self.input_text);
                     if ui.button("➕ Add Task").clicked() && !self.input_text.is_empty() {
@@ -378,8 +366,6 @@ impl MyApp {
                         self.input_text.clear(); 
                     }
                 });
-                
-
 
                 let len_cat = category.tasks.len();
                 for (idx_task, task) in category.tasks.iter_mut().enumerate() {
@@ -392,7 +378,7 @@ impl MyApp {
                             ui.label(text);
 
                             let prev_status = task.status.clone();
-                            ComboBox::from_id_salt(10 * idx_category + idx_task + 100)
+                            ComboBox::from_id_salt(10 * idx_category + idx_task + 10)
                                 .selected_text(task.status.to_string())
                                 .show_ui(ui, |ui| {
                                     ui.selectable_value(&mut task.status, TaskStatus::Completed, "Completed");
@@ -481,13 +467,13 @@ impl MyApp {
         ui.add_space(20.0);
 
 
-        //Input handling
+        // Input handling
         self.handle_input(ui, ctx);
 
-        //Confirm exit window
+        // Confirm exit window
         self.confirm_exit_win(ui, ctx);
        
-        //Task shower
+        // Task displayer
         ui.separator();
         ui.vertical(|ui| {
             self.display_tasks(ui);
@@ -509,11 +495,12 @@ impl MyApp {
             
             let labl = ui.label(make_rich_text("Password", None));
             egui::TextEdit::singleline(&mut self.password).password(true).hint_text("Password").show(ui);
-            //ui.text_edit_singleline(&mut self.password).labelled_by(labl.id);
+           
 
             let log_btn = ui.button("Login");
             if log_btn.clicked() {
-                //LOGIN LOGC
+                todo!("MOVE TO A SEPARATE FUNCTION");
+
                 let rt = tokio::runtime::Runtime::new().unwrap();
 
                 let url = "http://localhost:3000/login";
@@ -571,6 +558,7 @@ impl MyApp {
             let reg_btn = ui.button("Register");
             if reg_btn.clicked() {
                 //REG LOGIC
+                todo!("Move to a separate function");
 
                 let rt = tokio::runtime::Runtime::new().unwrap();
 
