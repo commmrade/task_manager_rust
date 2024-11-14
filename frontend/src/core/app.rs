@@ -103,8 +103,8 @@ impl eframe::App for MyApp {
         
         let mut headers = HeaderMap::new();
         headers.insert("Content-Type", HeaderValue::from_str("application/json").unwrap());
-
-        match self.rt.block_on(post_request_json(url, query_params, headers, serde_json::to_string(&self.categories).unwrap())) {
+        
+        match self.rt.block_on(post_request_json(url, query_params, headers, serde_json::to_string_pretty(&self.categories).unwrap())) {
             Ok(()) => {
                 
             }
@@ -202,8 +202,8 @@ async fn post_request(url : &str, query : HashMap<String, String>, headers : Has
 async fn post_request_json(url : &str, query : HashMap<String, String>, headers : HeaderMap, js : String) -> Result<(), Box<dyn std::error::Error>> {
     let client = reqwest::Client::new();
 
-    let response = client.post(url).headers(headers).query(&query).body(js).send().await?;
-
+    let response = client.post(url).headers(headers).query(&query).body(js.clone()).send().await?;
+    println!("json {}", js);
     if response.status().is_success() {
         return Ok(())
     } else if response.status().as_u16() == 204 {
