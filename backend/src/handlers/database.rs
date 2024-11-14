@@ -42,7 +42,7 @@ impl Db
                 return Ok((false, 0))
             }
         };
-        println!("task exists {}", row.is_empty());
+        
         Ok((!row.is_empty(), row.get(0)))
     }
     pub async fn task_exists(&self, username : String, title : String) -> Result<(bool, i32), sqlx::Error> {
@@ -56,7 +56,7 @@ impl Db
                 return Ok((false, 0))
             }
         };
-        println!("task exists {}", row.is_empty());
+       
         Ok((!row.is_empty(), row.get(0)))
     }
     pub async fn add_user(&self, username : String, password : String, email : String) -> Result<(), sqlx::Error> {
@@ -118,41 +118,36 @@ impl Db
 
     }
     pub async fn fetch_tasks(&self, username : String) -> Result<Vec<Category>, sqlx::Error> {
-        println!("fetching tasks");
         match self.user_exists(username.clone()).await {
             Ok((b_exists, id)) => {
                 if b_exists {
                     let mut cats : HashMap<String, Vec<Task>> = HashMap::new();
                     let mut categories : Vec<Category> = Vec::new();
-                    let rows = sqlx::query("SELECT DISTINCT tasks.title, status, categories.title AS category_title, tasks.id  FROM tasks, categories WHERE tasks.user_id = ?  GROUP BY tasks.id;")
-                    .bind(id)
+                    println!("here");
+                   
+
+                    let task_rows = sqlx::query("SELECT tasks.title, tasks.status, tasks.id, categories.title FROM tasks LEFT JOIN categories on tasks.category_id = categories.id WHERE tasks.user_id = ?").bind(id)
                     .fetch_all(&self.pool).await?;
+                    
+                    for task_row in task_rows {
+                        cats.entry(task_row.get::<String, _>(3)).or_insert_with(Vec::new).push(Task { name: task_row.get(0), status: TaskStatus::from_str(task_row.get(1)).unwrap(), comments: vec![] });
 
-                    for row in rows {
 
-                        cats.entry(row.get::<String, _>(2))
-                        .or_insert_with(Vec::new) // Creates a new Vec if the key doesn't exist
-                        .push(Task {
-                            name: row.get(0),
-                            status: TaskStatus::from_str(row.get(1)).unwrap(),
-                            comments: vec![],
-                        });
-
-                        let comms = match self.fetch_comments(row.get(3)).await {
+                        let comms = match self.fetch_comments(task_row.get(2)).await {
                             Ok(vec) => vec, 
                             Err(why) => {
                                 println!("Fetching comments error");
                                 return Err(why);
                             }
                         };
-                        cats.entry(row.get::<String, _>(2)).and_modify(|v| v.last_mut().unwrap().comments.extend(comms));
-                        
+                        cats.entry(task_row.get::<String, _>(3)).and_modify(|v| v.last_mut().unwrap().comments.extend(comms));
                     }
+
                     for (category_name, tasks) in cats {
                        
                         categories.push(Category { name: category_name, tasks: tasks });
                     }
-                    println!("ended fetching");
+
                     Ok(categories)
                 } else {
                     return Err(sqlx::Error::AnyDriverError("User does not exist".into()))
@@ -252,8 +247,7 @@ impl Db
     pub async fn add_comment(&self, username : String, title : String, comment : String) -> Result<(), sqlx::Error> {
         match self.task_exists(username, title).await {
             Ok((b_exists, task_id)) => {
-                sqlx::query("INSERT INTO comments (task_id, text) VALUES (?, ?)")
-                .bind(task_id)
+                sqlx::query("INSERT INTO comments (task_id, text) VALUES (?, ?)").bind(task_id)
                 .bind(comment)
                 .execute(&self.pool).await?;
 

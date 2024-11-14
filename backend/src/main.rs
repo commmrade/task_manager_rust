@@ -1,8 +1,8 @@
 use std::{os::unix::thread, result, str::FromStr, sync::Arc, time::Duration};
 
 mod handlers;
-use axum::{extract::{rejection::{JsonRejection, QueryRejection}, Query, State}, http::StatusCode, routing::{get, post}, Json, Router};
-use handlers::{database::{self, Db}, session_handler::{check_token, make_token}};
+use axum::{extract::{rejection::{JsonRejection, QueryRejection}, Query, State}, http::{HeaderMap, StatusCode}, routing::{get, post}, Json, Router};
+use handlers::{database::{self, Db}, session_handler::{check_token, check_token_and_name, make_token}};
 use serde::{Deserialize, Serialize};
 use tokio::runtime::Runtime;
 
@@ -94,10 +94,7 @@ impl AppState {
 #[tokio::main]
 async fn main() {
 
-    let tkn = make_token("fuck");
-
-    std::thread::sleep(Duration::from_secs(5));
-    check_token(tkn.as_str()).unwrap();
+   
 
     println!("hello world");
     let app_state = Arc::new(AppState::new("mysql://klewy:root@localhost/task_manager".to_string()).await);
@@ -115,14 +112,14 @@ async fn main() {
 }
 
 
-async fn login(State(appstate) : State<Arc<AppState>>, result : Result<Json<LoginData>, JsonRejection>) -> Result<Json<Resp>, (StatusCode, String)> {
+async fn login(State(appstate) : State<Arc<AppState>>, result : Result<Json<LoginData>, JsonRejection>) -> Result<String, (StatusCode, String)> {
     match result {
         Ok(Json(result)) => {
         
-            match appstate.db.login_user(result.name, result.password).await {
+            match appstate.db.login_user(result.name.clone(), result.password).await {
                 Ok(()) => {
                     println!("Successful login");
-                    return Ok(Json(Resp { token: "1488".to_string() }))
+                    return Ok(make_token(&result.name))
                 }
                 Err(why) => {
                     println!("Login error: {}", why);
@@ -136,15 +133,15 @@ async fn login(State(appstate) : State<Arc<AppState>>, result : Result<Json<Logi
         }
     }
 }
-async fn register(State(appstate) : State<Arc<AppState>>, result : Result<Json<RegData>, JsonRejection>) -> Result<(), (StatusCode, String)> {
+async fn register(State(appstate) : State<Arc<AppState>>, result : Result<Json<RegData>, JsonRejection>) -> Result<String, (StatusCode, String)> {
     match result {
         Ok(Json(result)) => {
             if !result.name.is_empty() && !result.password.is_empty() {
                 
-                match appstate.db.add_user(result.name, result.password, result.email).await {
+                match appstate.db.add_user(result.name.clone(), result.password, result.email).await {
                     Ok(()) => {
                        
-                        Ok(())
+                        Ok(make_token(&result.name))
                     }
                     Err(why) => {
                         println!("Register error: {}", why);
@@ -162,44 +159,63 @@ async fn register(State(appstate) : State<Arc<AppState>>, result : Result<Json<R
         }
     }
 }
-async fn get_tasks(State(appstate) : State<Arc<AppState>>, result : Result<Query<UserQuery>, QueryRejection>) -> Result<Json<Vec<Category>>, (StatusCode, String)> {
+async fn get_tasks(State(appstate) : State<Arc<AppState>>, result : Result<Query<UserQuery>, QueryRejection>, headers : HeaderMap) -> Result<Json<Vec<Category>>, (StatusCode, String)> {
     match result {
+
         Ok(Query(result)) => {
             if !result.username.is_empty() {
-                match appstate.db.fetch_tasks(result.username).await {
-                    Ok(vec) => {
-                        return Ok(Json(vec))
-                    }
-                    Err(why) => {
-                        println!("TAsk fetch error: {}", why);
-                        return Err((StatusCode::BAD_REQUEST, "wrong data".into()))
-                    }
+                if check_token_and_name(headers["Authentication"].to_str().unwrap(), &result.username) {
+                    match appstate.db.fetch_tasks(result.username.clone()).await {
+                    
+                        Ok(vec) => {
+                            return Ok(Json(vec))
+                        }
+                        Err(why) => {
+                            
+                            println!("TAsk fetch error: {}", why);
+                            return Err((StatusCode::BAD_REQUEST, "wrong data".into()))
+                        }
+                    }    
+                } else {
+                    println!("wrong token unauthorized");
+                    return Err((StatusCode::UNAUTHORIZED, "Wrong token".into()))
                 }
+                
             } else {
+                
                 return Err((StatusCode::BAD_REQUEST, "Wrong creds".into()))
             }
         }
         Err(_) => {
+            
             println!("Incorrect data");
             return Err((StatusCode::NO_CONTENT, "".to_string()))
         }
     }
 }
-async fn post_tasks(State(appstate) : State<Arc<AppState>>, query : Result<Query<UserQuery>, QueryRejection>, result : Result<Json<Vec<Category>>, JsonRejection>) -> Result<(), (StatusCode, String)> {
+async fn post_tasks(State(appstate) : State<Arc<AppState>>, 
+    query : Result<Query<UserQuery>, QueryRejection>, 
+    headers : HeaderMap, 
+    result : Result<Json<Vec<Category>>, JsonRejection>) -> Result<(), (StatusCode, String)> {
     match result {
         Ok(Json(result)) => {
-            
-             for element in result {
-                match appstate.db.add_category(Query(query.as_ref().unwrap()).username.clone(), element).await {
-                    Ok(()) => {
-                        
+            if check_token_and_name(headers["Authentication"].to_str().unwrap(), &query.as_ref().unwrap().username) {
+                for element in result {
+                    match appstate.db.add_category(Query(query.as_ref().unwrap()).username.clone(), element).await {
+                        Ok(()) => {
+                            
+                        }
+                        Err(why) => {
+                            println!("Saving task error {}", why);
+                        }
                     }
-                    Err(why) => {
-                        println!("Saving task error {}", why);
-                    }
-                }
-             }
-             return Ok(())
+                 }
+                 return Ok(())
+            } else {
+                println!("Token expired");
+                return Err((StatusCode::UNAUTHORIZED, "Token error".into()))
+            }
+             
         }
         Err(_) => {
             println!("Incorrect data");

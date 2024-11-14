@@ -1,4 +1,4 @@
-use std::{borrow::{Borrow, BorrowMut}, clone, collections::{HashMap, HashSet}, hash::Hash, process::exit, str::FromStr, thread, time::{Duration, SystemTime}};
+use std::{borrow::{Borrow, BorrowMut}, clone, collections::{HashMap, HashSet}, hash::Hash, process::exit, str::FromStr, sync::{Arc, Mutex}, thread, time::{Duration, SystemTime}};
 
 use chrono::{DateTime, Local, Utc};
 use egui::{Color32, ComboBox, RichText, Ui};
@@ -103,9 +103,10 @@ impl eframe::App for MyApp {
         
         let mut headers = HeaderMap::new();
         headers.insert("Content-Type", HeaderValue::from_str("application/json").unwrap());
+        headers.insert("Authentication", HeaderValue::from_str(&self.token).unwrap());
         
         match self.rt.block_on(post_request_json(url, query_params, headers, serde_json::to_string_pretty(&self.categories).unwrap())) {
-            Ok(()) => {
+            Ok(_txt) => {
                 
             }
             Err(err) => {
@@ -115,6 +116,9 @@ impl eframe::App for MyApp {
                     }
                     "400" => {
                         println!("Wrong credentials")
+                    }
+                    "401" => {
+                        println!("Wrong token")
                     }
                     _ => {
                         println!("Server is dead");
@@ -145,9 +149,22 @@ impl eframe::App for MyApp {
 
                     let mut headers : HeaderMap = HeaderMap::new();
                     headers.insert("Content-Type", HeaderValue::from_str("application/json").unwrap());
-
+                    headers.insert("Authentication", HeaderValue::from_str(&self.token).unwrap());
+                   
+                    
                     self.rt.spawn(async move {
-                        post_request_json(url, query_params, headers, s).await.unwrap();
+                        match post_request_json(url, query_params, headers, s).await {
+                            Ok(err) => {
+                                if err == "401" {
+                                    eprintln!("Token unauthorized");
+                                    exit(-1);
+                                }
+                            }
+                            Err(why) => {
+                                println!("Saving tasks error: {}", why);
+                            }
+
+                        }
                     });
                 }
 
@@ -181,38 +198,42 @@ async fn get_request(url : &str, query : &HashMap<String, String>) -> Result<(),
         return Err("0".into())
     }
 }
-async fn post_request(url : &str, query : HashMap<String, String>, headers : HashMap<String, String>, body : HashMap<String, String>) -> Result<(), Box<dyn std::error::Error>> {
+async fn post_request(url : &str, query : HashMap<String, String>, headers : HashMap<String, String>, body : HashMap<String, String>) -> Result<String, Box<dyn std::error::Error>> {
     let client = reqwest::Client::new();
 
     let response = client.post(url).query(&query).send().await?; 
 
     if response.status().is_success() {
-        return Ok(())
+        return Ok(response.text().await?)
     } else if response.status().as_u16() == 204 {
         //To handle incorrect data sent
         return Err("204".into());
     } else if response.status().as_u16() == 400 {
         //Handle wrong creds sent
         return Err("400".into());
+    } else if response.status().as_u16() == 401 {
+        return Err("401".into())
     } else {
         //Other kinda errors if they magically appear
         return Err("0".into())
     }
 }
-async fn post_request_json(url : &str, query : HashMap<String, String>, headers : HeaderMap, js : String) -> Result<(), Box<dyn std::error::Error>> {
+async fn post_request_json(url : &str, query : HashMap<String, String>, headers : HeaderMap, js : String) -> Result<String, Box<dyn std::error::Error>> {
     let client = reqwest::Client::new();
 
     let response = client.post(url).headers(headers).query(&query).body(js.clone()).send().await?;
-    println!("json {}", js);
+    
     if response.status().is_success() {
-        return Ok(())
+        return Ok(response.text().await?)
     } else if response.status().as_u16() == 204 {
         //To handle incorrect data sent
         return Err("204".into());
     } else if response.status().as_u16() == 400 {
         //Handle wrong creds sent
         return Err("400".into());
-    } else {
+    } else if response.status().as_u16() == 401 {
+        return Err("401".into())
+    }  else {
         //Other kinda errors if they magically appear
         return Err("0".into())
     }
@@ -278,7 +299,7 @@ impl MyApp {
 
             query_maps.insert("username", self.current_user.clone().unwrap());
 
-            let response = client.get(url).query(&query_maps).body(serde_json::to_string_pretty(&self.categories).unwrap()).send().await.unwrap();
+            let response = client.get(url).query(&query_maps).header("Authentication", self.token.clone()).body(serde_json::to_string_pretty(&self.categories).unwrap()).send().await.unwrap();
             println!("loading...");
             if response.status().is_success() {
                 let txt = response.text().await.unwrap();
@@ -291,6 +312,9 @@ impl MyApp {
               
             } else if response.status().as_u16() == 400 {
                 
+            } else if response.status().as_u16() == 401 {
+                println!("TOKEN ERROR\n");
+                exit(-1);
             } else {
                  //Other kinda errors if they magically appear
             }
@@ -500,7 +524,8 @@ impl MyApp {
                 headers.insert("Content-Type", HeaderValue::from_str("application/json").unwrap());
 
                 match rt.block_on(post_request_json(url, HashMap::new(), headers, serde_json::to_string(&login_data).unwrap())) {
-                    Ok(()) => {
+                    Ok(txt) => {
+                        self.token = txt;
                         self.current_user = Some(self.login.clone());
                         println!("load all tasks");
                         self.load_tasks();
@@ -553,11 +578,13 @@ impl MyApp {
                 
                 let mut headers: HeaderMap = HeaderMap::new();
                 headers.insert("Content-Type", HeaderValue::from_str("application/json").unwrap());
+                
 
                 let reg_d = RegData{email: self.email.clone(), name: self.login.clone(), password: self.password.clone()};
 
                 match rt.block_on(post_request_json(url, HashMap::new(), headers, serde_json::to_string(&reg_d).unwrap())) {
-                    Ok(()) => {
+                    Ok(txt) => {
+                        self.token = txt;
                         self.current_user = Some(self.login.clone());
                         self.load_tasks();
                  

@@ -17,7 +17,7 @@ pub fn make_token(name : &str) -> String {
     token.unwrap()
 }
 
-pub fn check_token(token : &str) -> Result<(), ()> {
+pub fn check_token(token : &str) -> bool {
     let secret_key = HS256Key::from_bytes(b"vladivostok1488");
 
     let mut options = VerificationOptions::default();
@@ -25,15 +25,15 @@ pub fn check_token(token : &str) -> Result<(), ()> {
 
     let claims = match secret_key.verify_token::<User>(&token, Some(options)) {
         Ok(cls) => {
-            return Ok(())
+            return true
         }
         Err(why) => {
             println!("Why {}", why);
-            return Err(())
+            return false
         }
     };
 }
-pub fn check_token_and_name(token : &str, name : &str) -> Result<(), String> {
+pub fn check_token_and_name(token : &str, name : &str) -> bool {
     let secret_key = HS256Key::from_bytes(b"vladivostok1488");
 
     let mut options = VerificationOptions::default();
@@ -42,13 +42,13 @@ pub fn check_token_and_name(token : &str, name : &str) -> Result<(), String> {
     let claims = match secret_key.verify_token::<User>(&token, Some(options)) {
         Ok(cls) => {
             if cls.custom.username == name {
-                return Ok(())
+                return true
             } 
-            return Err("Names don't match!".into());
+            return false
         }
         Err(why) => {
             println!("Why {}", why);
-            return Err("Some error".into())
+            return false
         }
     };
 }
