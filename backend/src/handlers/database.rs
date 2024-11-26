@@ -147,6 +147,7 @@ impl Db {
                         return Err(why);
                     }
                 };
+                
                 cats.entry(task_row.get::<String, _>(3))
                     .and_modify(|v| v.last_mut().unwrap().comments.extend(comms));
             }
