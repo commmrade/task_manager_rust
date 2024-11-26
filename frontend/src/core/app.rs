@@ -499,7 +499,7 @@ impl MyApp {
 
             let log_btn = ui.button("Login");
             if log_btn.clicked() {
-                todo!("MOVE TO A SEPARATE FUNCTION");
+                //todo!("MOVE TO A SEPARATE FUNCTION");
 
                 let rt = tokio::runtime::Runtime::new().unwrap();
 
@@ -558,9 +558,9 @@ impl MyApp {
             let reg_btn = ui.button("Register");
             if reg_btn.clicked() {
                 //REG LOGIC
-                todo!("Move to a separate function");
+                //todo!("Move to a separate function");
 
-                let rt = tokio::runtime::Runtime::new().unwrap();
+                //let rt = tokio::runtime::Runtime::new().unwrap();
 
                 let url = "http://localhost:3000/register";
                 
@@ -570,7 +570,7 @@ impl MyApp {
 
                 let reg_d = RegData{email: self.email.clone(), name: self.login.clone(), password: self.password.clone()};
 
-                match rt.block_on(post_request_json(url, HashMap::new(), headers, serde_json::to_string(&reg_d).unwrap())) {
+                match self.rt.block_on(post_request_json(url, HashMap::new(), headers, serde_json::to_string(&reg_d).unwrap())) {
                     Ok(txt) => {
                         self.token = txt;
                         self.current_user = Some(self.login.clone());

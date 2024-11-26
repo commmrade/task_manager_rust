@@ -1,226 +1,42 @@
-use std::{os::unix::thread, result, str::FromStr, sync::Arc, time::Duration};
-
+use std::{sync::Arc};
 mod handlers;
-use axum::{extract::{rejection::{JsonRejection, QueryRejection}, Query, State}, http::{HeaderMap, StatusCode}, routing::{get, post}, Json, Router};
-use handlers::{database::{self, Db}, session_handler::{check_token, check_token_and_name, make_token}};
-use serde::{Deserialize, Serialize};
-use tokio::runtime::Runtime;
+use axum::{
+    routing::{get, post},
+    Json, Router,
+};
+use handlers::{
+    auth::{login, register}, database::{self, Db}, tasks::{get_tasks, post_tasks}
+};
 
 
-
-#[derive(Serialize, Deserialize, PartialEq, Debug, Clone)]
-enum TaskStatus {
-    Completed,
-    NotCompleted,
-    InProgress
-}
-
-impl ToString for TaskStatus {
-    fn to_string(&self) -> String {
-        match self {
-            Self::Completed => "Completed".to_string(),
-            Self::NotCompleted => "Not Completed".to_string(),
-            Self::InProgress => "In Progress".to_string()
-        }
-    }
-}
-impl FromStr for TaskStatus {
-    type Err = String;
-    fn from_str(s: &str) -> Result<Self, Self::Err> {
-        match s {
-            "Not Completed" => Ok(TaskStatus::NotCompleted),
-            "In Progress" => Ok(TaskStatus::InProgress),
-            "Completed" => Ok(TaskStatus::Completed),
-            _ => Err("Not a valid enum".into())
-        }
-    }
+pub struct AppState {
+    db : Arc<Db>
 }
 
 
-#[derive(Deserialize, Serialize)]
-struct LoginData {
-    name: String,
-    password: String
-}
-
-#[derive(Deserialize, Serialize)]
-struct RegData {
-    name: String,
-    password: String,
-    email : String
-}
-
-#[derive(Deserialize, Serialize)]
-struct Resp {
-    token: String
-}
-
-
-#[derive(Serialize, Deserialize)]
-struct UserQuery {
-    username : String
-}
-
-
-#[derive(Serialize, Deserialize, Clone, Debug)]
-struct Comment {
-    text: String,
-    created_at: String
-}
-
-#[derive(Serialize, Deserialize, Debug, Clone)]
-struct Task {
-    name: String,
-    status:  TaskStatus,
-    comments : Vec<Comment>
-}
-#[derive(Serialize, Deserialize, Clone, Debug)]
-struct Category {
-    name: String,
-    tasks: Vec<Task>
-}
-
-
-
-struct AppState {
-   db : Arc<Db>
-}
 impl AppState {
-    async fn new(url : String) -> Self {
-        Self { db: Arc::new(Db::new(url).await.unwrap()) }
+    async fn new(url: String) -> Self {
+        Self {
+            db: Arc::new(Db::new(url).await.unwrap()),
+        }
     }
 }
 
 #[tokio::main]
 async fn main() {
-
-   
-
     println!("hello world");
-    let app_state = Arc::new(AppState::new("mysql://klewy:root@localhost/task_manager".to_string()).await);
-    let app : Router<()> = Router::new()
-    .route("/login", post(login))
-    .route("/register", post(register))
-    .route("/tasks", get(get_tasks))
-    .route("/tasks", post(post_tasks))
-    .with_state(app_state);
- 
+    let app_state =
+        Arc::new(AppState::new("mysql://klewy:root@localhost/task_manager".to_string()).await);
+    let app: Router<()> = Router::new()
+        .route("/login", post(login))
+        .route("/register", post(register))
+        .route("/tasks", get(get_tasks))
+        .route("/tasks", post(post_tasks))
+        .with_state(app_state);
 
     let listener = tokio::net::TcpListener::bind("0.0.0.0:3000").await.unwrap();
-    
+
     axum::serve(listener, app).await.unwrap();
 }
 
-
-async fn login(State(appstate) : State<Arc<AppState>>, result : Result<Json<LoginData>, JsonRejection>) -> Result<String, (StatusCode, String)> {
-    match result {
-        Ok(Json(result)) => {
-        
-            match appstate.db.login_user(result.name.clone(), result.password).await {
-                Ok(()) => {
-                    println!("Successful login");
-                    return Ok(make_token(&result.name))
-                }
-                Err(why) => {
-                    println!("Login error: {}", why);
-                    return Err((StatusCode::BAD_REQUEST, "".to_string()))
-                }
-            }
-        }
-        Err(_) => {
-            println!("Error, wrong data");
-            Err((StatusCode::NO_CONTENT, "".to_string()))
-        }
-    }
-}
-async fn register(State(appstate) : State<Arc<AppState>>, result : Result<Json<RegData>, JsonRejection>) -> Result<String, (StatusCode, String)> {
-    match result {
-        Ok(Json(result)) => {
-            if !result.name.is_empty() && !result.password.is_empty() {
-                
-                match appstate.db.add_user(result.name.clone(), result.password, result.email).await {
-                    Ok(()) => {
-                       
-                        Ok(make_token(&result.name))
-                    }
-                    Err(why) => {
-                        println!("Register error: {}", why);
-                        return Err((StatusCode::BAD_REQUEST, "Wrong credentials".into()))
-                    }
-                }
-                
-            } else {
-                Err((StatusCode::BAD_REQUEST, "Wrong credentials".into()))
-            }
-        }
-        Err(_) => {
-            println!("Incorrect data");
-            Err((StatusCode::NO_CONTENT, "".to_string()))
-        }
-    }
-}
-async fn get_tasks(State(appstate) : State<Arc<AppState>>, result : Result<Query<UserQuery>, QueryRejection>, headers : HeaderMap) -> Result<Json<Vec<Category>>, (StatusCode, String)> {
-    match result {
-
-        Ok(Query(result)) => {
-            if !result.username.is_empty() {
-                if check_token_and_name(headers["Authentication"].to_str().unwrap(), &result.username) {
-                    match appstate.db.fetch_tasks(result.username.clone()).await {
-                    
-                        Ok(vec) => {
-                            return Ok(Json(vec))
-                        }
-                        Err(why) => {
-                            
-                            println!("TAsk fetch error: {}", why);
-                            return Err((StatusCode::BAD_REQUEST, "wrong data".into()))
-                        }
-                    }    
-                } else {
-                    println!("wrong token unauthorized");
-                    return Err((StatusCode::UNAUTHORIZED, "Wrong token".into()))
-                }
-                
-            } else {
-                
-                return Err((StatusCode::BAD_REQUEST, "Wrong creds".into()))
-            }
-        }
-        Err(_) => {
-            
-            println!("Incorrect data");
-            return Err((StatusCode::NO_CONTENT, "".to_string()))
-        }
-    }
-}
-async fn post_tasks(State(appstate) : State<Arc<AppState>>, 
-    query : Result<Query<UserQuery>, QueryRejection>, 
-    headers : HeaderMap, 
-    result : Result<Json<Vec<Category>>, JsonRejection>) -> Result<(), (StatusCode, String)> {
-    match result {
-        Ok(Json(result)) => {
-            if check_token_and_name(headers["Authentication"].to_str().unwrap(), &query.as_ref().unwrap().username) {
-                for element in result {
-                    match appstate.db.add_category(Query(query.as_ref().unwrap()).username.clone(), element).await {
-                        Ok(()) => {
-                            
-                        }
-                        Err(why) => {
-                            println!("Saving task error {}", why);
-                        }
-                    }
-                 }
-                 return Ok(())
-            } else {
-                println!("Token expired");
-                return Err((StatusCode::UNAUTHORIZED, "Token error".into()))
-            }
-             
-        }
-        Err(_) => {
-            println!("Incorrect data");
-            return Err((StatusCode::NO_CONTENT, "".to_string()))
-        }
-    }
-}
 
