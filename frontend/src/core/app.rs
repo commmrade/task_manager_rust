@@ -439,8 +439,11 @@ impl MyApp {
             self.add_task(task_new_name.0, task_new_name.1);
         }
         if let Some(idx) = category_to_remove {
-            self.categories.remove(idx);
-            self.categories.shrink_to_fit();
+            if self.categories[idx].tasks.is_empty() {
+                self.categories.remove(idx);
+                self.categories.shrink_to_fit();
+            }
+            
         } 
     }
     
