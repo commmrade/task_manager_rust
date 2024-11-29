@@ -2,7 +2,7 @@ use std::{collections::HashMap, process::exit, str::FromStr};
 
 use chrono::{DateTime, Local, Utc};
 use egui::Ui;
-use reqwest::header::HeaderMap;
+use reqwest::header::{HeaderMap, HeaderValue};
 use serde::{Deserialize, Serialize};
 
 

@@ -142,6 +142,7 @@ impl Db {
                         status: TaskStatus::from_str(category_row.get(4)).unwrap(),
                         comments: vec![],
                     });
+                    println!("task id {}", category_row.get::<i32, _>(2));
                     let comms = match self.fetch_comments(category_row.get(2)).await {
                         Ok(vec) => vec,
                         Err(why) => {
@@ -149,8 +150,9 @@ impl Db {
                             return Err(why);
                         }
                     };
+                    
                     // Push comments
-                    cats.entry(category_row.get::<String, _>(3))
+                    cats.entry(category_row.get::<String, _>(1))
                         .and_modify(|v| v.last_mut().unwrap().comments.extend(comms));
                 }
                 
