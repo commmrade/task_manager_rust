@@ -7,73 +7,27 @@ use serde::{Deserialize, Serialize};
 use serde_json::json;
 use tokio::runtime::Runtime;
 
-use super::json_handler;
+use crate::core::network::{get_request, post_request_json};
 
+use super::{network::{LoginData, RegData}, task_handler::{Category, TaskStatus}};
 
-#[derive(Serialize, Deserialize, PartialEq, Clone, Debug)]
-enum TaskStatus {
-    Completed,
-    NotCompleted,
-    InProgress
-}
-
-impl ToString for TaskStatus {
-    fn to_string(&self) -> String {
-        match self {
-            Self::Completed => "Completed".to_string(),
-            Self::NotCompleted => "Not Completed".to_string(),
-            Self::InProgress => "In Progress".to_string()
-        }
-    }
-}
-impl FromStr for TaskStatus {
-    type Err = String;
-    fn from_str(s: &str) -> Result<Self, Self::Err> {
-        match s {
-            "Not Completed" => Ok(TaskStatus::NotCompleted),
-            "In Progress" => Ok(TaskStatus::InProgress),
-            "Completed" => Ok(TaskStatus::Completed),
-            _ => Err("Not a valid enum".into())
-        }
-    }
-}
-
-#[derive(Serialize, Deserialize, Clone, Debug)]
-struct Comment {
-    text: String,
-    created_at: String
-}
-
-#[derive(Serialize, Deserialize, Clone, Debug)]
-struct Task {
-    name: String,
-    status: TaskStatus,
-    comments : Vec<Comment>
-    
-}
-
-#[derive(Serialize, Deserialize, Clone, Debug)]
-struct Category {
-    name: String,
-    tasks: Vec<Task>
-}
 
 
 pub struct MyApp {
-    categories : Vec<Category>,
-    can_exit : bool,
-    current_user : Option<String>,
-    comment_input : String,
-    token : String,
-    login : String,
-    blogin : bool,
-    password : String,
-    email : String,
-    exit_window : bool,
-    input_text: String,
-    category_input : String,
-    rt : Runtime,
-    prev_check : DateTime<Local>
+    pub categories : Vec<Category>,
+    pub can_exit : bool,
+    pub current_user : Option<String>,
+    pub comment_input : String,
+    pub token : String,
+    pub login : String,
+    pub blogin : bool,
+    pub password : String,
+    pub email : String,
+    pub exit_window : bool,
+    pub input_text: String,
+    pub category_input : String,
+    pub rt : Runtime,
+    pub prev_check : DateTime<Local>
 }
 
 
@@ -87,67 +41,10 @@ impl Default for MyApp {
     }
 }
 
-fn make_rich_text(str : &str, font_size: Option<f32>) -> RichText {
+pub fn make_rich_text(str : &str, font_size: Option<f32>) -> RichText {
     RichText::new(str).size(font_size.unwrap_or(16.0))
 }
-async fn get_request(url : &str, query : &HashMap<String, String>, headers : HeaderMap) -> Result<String, Box<dyn std::error::Error>> {
-    let client = reqwest::Client::new();
 
-    let response = client.get(url).headers(headers).query(query).send().await?;
-
-    if response.status().is_success() {
-        return Ok(response.text().await?)
-    } else if response.status().as_u16() == 204 {
-        //To handle incorrect data sent
-        return Err("204".into());
-    } else if response.status().as_u16() == 400 {
-        //Handle wrong creds sent
-        return Err("400".into());
-    } else {
-        //Other kinda errors if they magically appear
-        return Err("0".into())
-    }
-}
-async fn post_request(url : &str, query : HashMap<String, String>, headers : HashMap<String, String>, body : HashMap<String, String>) -> Result<String, Box<dyn std::error::Error>> {
-    let client = reqwest::Client::new();
-
-    let response = client.post(url).query(&query).send().await?; 
-
-    if response.status().is_success() {
-        return Ok(response.text().await?)
-    } else if response.status().as_u16() == 204 {
-        //To handle incorrect data sent
-        return Err("204".into());
-    } else if response.status().as_u16() == 400 {
-        //Handle wrong creds sent
-        return Err("400".into());
-    } else if response.status().as_u16() == 401 {
-        return Err("401".into())
-    } else {
-        //Other kinda errors if they magically appear
-        return Err("0".into())
-    }
-}
-async fn post_request_json(url : &str, query : HashMap<String, String>, headers : HeaderMap, js : String) -> Result<String, Box<dyn std::error::Error>> {
-    let client = reqwest::Client::new();
-
-    let response = client.post(url).headers(headers).query(&query).body(js.clone()).send().await?;
-    
-    if response.status().is_success() {
-        return Ok(response.text().await?)
-    } else if response.status().as_u16() == 204 {
-        //To handle incorrect data sent
-        return Err("204".into());
-    } else if response.status().as_u16() == 400 {
-        //Handle wrong creds sent
-        return Err("400".into());
-    } else if response.status().as_u16() == 401 {
-        return Err("401".into())
-    }  else {
-        //Other kinda errors if they magically appear
-        return Err("0".into())
-    }
-}
 
 
 impl eframe::App for MyApp {
@@ -237,108 +134,7 @@ impl eframe::App for MyApp {
 
 impl MyApp {
     
-    fn remove_task(&mut self, idx_task: usize, idx_category : usize) {
-    
-        self.categories[idx_category].tasks.remove(idx_task);
-        self.categories[idx_category].tasks.shrink_to_fit(); // Deallocating not needed memory
-        
-    }
-    fn add_comment(&mut self, idx_task : usize, idx_category : usize, name : String,) {
-        let now = Utc::now();
-        let localized_time : DateTime<Local> = DateTime::from(now);
-        self.categories[idx_category].tasks[idx_task].comments.push(Comment { text: name, created_at: localized_time.to_string()});
-        
-
-    }
-    fn update_task(&mut self, idx_task : usize, idx_category : usize, status : TaskStatus) {
-
-        self.categories[idx_category].tasks[idx_task].status = status.clone();
-
-    }
-    fn add_task(&mut self, name : String, idx_category : usize) {
-        if self.categories[idx_category].tasks.iter().any(|el| el.name == name) {
-            println!("Error adding task");
-            return;
-        }
-
-        self.categories[idx_category].tasks.push(Task { name: name.clone(), status: TaskStatus::NotCompleted, comments : vec![] });
-    }
-    fn add_category(&mut self, name : String) {
-        if self.categories.iter().any(|el| el.name == name) {
-            println!("Error adding category");
-            return;
-        }
-        self.categories.push(Category { name: name, tasks: vec![] });
-    }
-    
-    fn handle_input(&mut self, ui : &mut Ui, ctx: &eframe::egui::Context) {
-
-        //Confirm window exit
-        if ui.input(|i| i.viewport().close_requested()) {
-            if self.can_exit {
-
-            } else {
-                self.exit_window = true;
-                ctx.send_viewport_cmd(egui::ViewportCommand::CancelClose);
-            }
-        }
-    }
-
-    fn load_tasks(&mut self) {
-        let usrname = self.login.clone();
-        println!("Username to load tasks: {}", &usrname);
-        
-        let client = reqwest::Client::new();
-        let url = "http://localhost:3000/tasks";
-        let mut query_maps: HashMap<String, String> = HashMap::new();
-
-        query_maps.insert("username".to_string(), self.current_user.clone().unwrap());
-
-        let mut headers = HeaderMap::new();
-        headers.insert("Authentication", HeaderValue::from_str(&self.token).unwrap());
-
-        match self.rt.block_on(get_request(url, &query_maps, headers)) {
-            Ok(txt) => {
-                let cats : Vec<Category> = serde_json::from_str(&txt).unwrap();
-                self.categories = cats;
-            }
-            Err(why) => {
-                if why.to_string().as_str() == "401" {
-                    println!("Invalid token");
-                    exit(-1);
-                }
-                println!("Loading task error: {}", why);
-            }
-        }
-
-    }
-
-
-    fn confirm_exit_win(&mut self, ui : &mut Ui, ctx: &eframe::egui::Context) {
-        if self.exit_window {
-            egui::Window::new("Confirm exit")
-            .collapsible(false)
-            .resizable(false)
-            .current_pos([ui.available_width() / 2.0, ui.available_height() / 2.0])
-            .show(ctx, |ui| {
-                ui.horizontal(|ui| {
-
-                    ui.separator();
-                    if ui.button("Close").clicked() {
-                        self.exit_window = false;
-                        self.can_exit = true;
-                        ctx.send_viewport_cmd(egui::ViewportCommand::Close);
-                    }
-                    if ui.button("Cancel").clicked() {
-                        self.exit_window = false;
-                    }
-                    ui.separator();
-
-                });
-            });
-        }
-    }
-    fn display_tasks(&mut self, ui: &mut Ui) {
+    pub fn display_tasks(&mut self, ui: &mut Ui) {
        
         let mut tasks_to_remove = Vec::new();
         let mut comments_to_add = Vec::new();
@@ -449,170 +245,30 @@ impl MyApp {
             
         } 
     }
-    
-    
-    fn draw_tasks_ui(&mut self, ui : &mut Ui, ctx: &eframe::egui::Context) {
-        
+    pub fn confirm_exit_win(&mut self, ui : &mut Ui, ctx: &eframe::egui::Context) {
+        if self.exit_window {
+            egui::Window::new("Confirm exit")
+            .collapsible(false)
+            .resizable(false)
+            .current_pos([ui.available_width() / 2.0, ui.available_height() / 2.0])
+            .show(ctx, |ui| {
+                ui.horizontal(|ui| {
 
-
-        //Heading
-        ui.heading(make_rich_text("TODO List", None));
-        ui.add_space(30.0);
-
-
-        let add_new_text = RichText::new("Add new task:").size(16.0);
-        ui.label(add_new_text);
-        ui.horizontal(|ui| {
-            ui.text_edit_singleline(&mut self.category_input);
-            if ui.button("Add new category").clicked() {
-                self.add_category(self.category_input.clone());
-
-                self.category_input.clear();
-            }
-        });
-        ui.add_space(20.0);
-
-
-        // Input handling
-        self.handle_input(ui, ctx);
-
-        // Confirm exit window
-        self.confirm_exit_win(ui, ctx);
-       
-        // Task displayer
-        ui.separator();
-        ui.vertical(|ui| {
-            self.display_tasks(ui);
-        });
-
-    }
-    fn draw_auth_ui(&mut self, ui : &mut Ui, ctx: &eframe::egui::Context) {
-        ui.label(make_rich_text("Please authorize", None));
-
-        if ui.button("Change").clicked() {
-            self.blogin = !self.blogin;
-            self.login.clear();
-            self.password.clear();
-        }
-        if self.blogin {
-            let labl = ui.label(make_rich_text("Login", None));
-            egui::TextEdit::singleline(&mut self.login).hint_text("Your username").show(ui);
-
-            
-            let labl = ui.label(make_rich_text("Password", None));
-            egui::TextEdit::singleline(&mut self.password).password(true).hint_text("Password").show(ui);
-           
-
-            let log_btn = ui.button("Login");
-            if log_btn.clicked() {
-                //todo!("MOVE TO A SEPARATE FUNCTION");
-
-                let rt = tokio::runtime::Runtime::new().unwrap();
-
-                let url = "http://localhost:3000/login";
-                
-                let login_data = LoginData{name: self.login.clone(), password: self.password.clone()};
-                
-                let mut headers = HeaderMap::new();
-                headers.insert("Content-Type", HeaderValue::from_str("application/json").unwrap());
-
-                match rt.block_on(post_request_json(url, HashMap::new(), headers, serde_json::to_string(&login_data).unwrap())) {
-                    Ok(txt) => {
-                        self.token = txt;
-                        self.current_user = Some(self.login.clone());
-                        println!("load all tasks");
-                        self.load_tasks();
-
-                        
+                    ui.separator();
+                    if ui.button("Close").clicked() {
+                        self.exit_window = false;
+                        self.can_exit = true;
+                        ctx.send_viewport_cmd(egui::ViewportCommand::Close);
                     }
-                    Err(err) => {
-                        match err.to_string().as_str() {
-                            "204" => {
-                                println!("Incorrect data for request");
-                            }
-                            "400" => {
-                                println!("Wrong credentials")
-                            }
-                            _ => {
-                                println!("Server is dead");
-                            }
-                        }
-                    }                    
-                }
-
-
-            }
-        } else {
-            let labl = ui.label(make_rich_text("Email", None));
-            ui.text_edit_singleline(&mut self.email).labelled_by(labl.id);
-
-            
-            
-            let labl = ui.label(make_rich_text("Login", None));
-           
-            ui.text_edit_singleline(&mut self.login).labelled_by(labl.id);
-
-            // let str = format!("Password");
-            // let text = RichText::new(str).size(16.0);
-           
-            let labl = ui.label(make_rich_text("Password", None));
-            
-            ui.text_edit_singleline(&mut self.password).labelled_by(labl.id);
-
-            
-            
-            let reg_btn = ui.button("Register");
-            if reg_btn.clicked() {
-                //REG LOGIC
-                //todo!("Move to a separate function");
-
-                //let rt = tokio::runtime::Runtime::new().unwrap();
-
-                let url = "http://localhost:3000/register";
-                
-                let mut headers: HeaderMap = HeaderMap::new();
-                headers.insert("Content-Type", HeaderValue::from_str("application/json").unwrap());
-                
-
-                let reg_d = RegData{email: self.email.clone(), name: self.login.clone(), password: self.password.clone()};
-
-                match self.rt.block_on(post_request_json(url, HashMap::new(), headers, serde_json::to_string(&reg_d).unwrap())) {
-                    Ok(txt) => {
-                        self.token = txt;
-                        self.current_user = Some(self.login.clone());
-                        self.load_tasks();
-                 
+                    if ui.button("Cancel").clicked() {
+                        self.exit_window = false;
                     }
-                    Err(err) => {
-                        println!("{}", err.to_string());
-                        match err.to_string().as_str() {
-                            "204" => {
-                                println!("Incorrect data for request");
-                            }
-                            "400" => {
-                                println!("Wrong credentials")
-                            }
-                            _ => {
-                                println!("Server is dead");
-                            }
-                        }
-                        
-                    }                    
-                }
-            }
+                    ui.separator();
+
+                });
+            });
         }
-
-
     }
+    
 }
-#[derive(Deserialize, Serialize)]
-struct LoginData {
-    name: String,
-    password: String
-}
-#[derive(Deserialize, Serialize)]
-struct RegData {
-    name: String,
-    password: String,
-    email : String
-}
+

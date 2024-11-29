@@ -1,5 +1,4 @@
 mod core;
-use core::json_handler::{self, load_json, save_json};
 use core::app;
 use eframe::egui::ViewportBuilder;
 
@@ -9,7 +8,7 @@ use eframe::egui::ViewportBuilder;
 
 fn main() {
     env_logger::init();
-    //todo!("Split in modules");
+    
 
     let options = eframe::NativeOptions {
         viewport: ViewportBuilder::default().with_inner_size([1280.0, 720.0]),

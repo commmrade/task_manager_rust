@@ -1,11 +1,16 @@
 use std::{sync::Arc};
 mod handlers;
+mod database_connector;
+mod sessions;
 use axum::{
     extract::Request, http::{HeaderValue, StatusCode}, middleware::from_fn, response::Response, routing::{get, post}, Json, Router
 };
+use database_connector::database::Db;
 use handlers::{
-    auth::{login, register}, database::{self, Db}, session_handler::check_token, tasks::{get_tasks, post_tasks}
+    auth::{login, register}, tasks::{get_tasks, post_tasks}
 };
+use sessions::session_handler::check_token;
+
 
 
 pub struct AppState {
@@ -24,8 +29,10 @@ impl AppState {
 
 
 async fn auth_middleware(req : Request, next : axum::middleware::Next) -> Result<Response, StatusCode> {
-    if check_token(req.headers().get("Authentication").map(|e| e.to_str().unwrap_or("")).unwrap()) {
+    if check_token(req.headers().get("Authentication").map(|e| e.to_str().unwrap_or("")).unwrap_or("")) {
         return Ok(next.run(req).await)
+    } else {
+        println!("Token expired/incorrect");
     }
 
     Err(StatusCode::UNAUTHORIZED)

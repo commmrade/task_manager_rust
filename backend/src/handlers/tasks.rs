@@ -7,7 +7,6 @@ use serde::{Deserialize, Serialize};
 
 use crate::AppState;
 
-use super::session_handler::check_token_and_name;
 
 #[derive(Serialize, Deserialize)]
 pub struct UserQuery {
@@ -70,20 +69,12 @@ pub async fn get_tasks(
     headers: HeaderMap,
 ) -> Result<Json<Vec<Category>>, (StatusCode, String)> {
     if !result.username.is_empty() {
-        if check_token_and_name(
-            headers["Authentication"].to_str().unwrap_or(""),
-            &result.username,
-        ) {
-            match appstate.db.fetch_tasks(result.username.clone()).await {
-                Ok(vec) => return Ok(Json(vec)),
-                Err(why) => {
-                    println!("TAsk fetch error: {}", why);
-                    return Err((StatusCode::BAD_REQUEST, "wrong data".into()));
-                }
+        match appstate.db.fetch_tasks(result.username.clone()).await {
+            Ok(vec) => return Ok(Json(vec)),
+            Err(why) => {
+                println!("TAsk fetch error: {}", why);
+                return Err((StatusCode::BAD_REQUEST, "wrong data".into()));
             }
-        } else {
-            println!("wrong token unauthorized");
-            return Err((StatusCode::UNAUTHORIZED, "Wrong token".into()));
         }
     } else {
         return Err((StatusCode::BAD_REQUEST, "Wrong creds".into()));
@@ -95,26 +86,18 @@ pub async fn post_tasks(
     headers: HeaderMap,
     Json(result): Json<Vec<Category>>,
 ) -> Result<(), (StatusCode, String)> {
-    if check_token_and_name(
-        headers["Authentication"].to_str().unwrap_or(""),
-        &query.as_ref().unwrap().username,
-    ) {
-        appstate.db.remove_tasks(query.as_ref().unwrap().username.clone()).await.unwrap();
-        for element in result {
-            match appstate
-                .db
-                .add_category(Query(query.as_ref().unwrap()).username.clone(), element)
-                .await
-            {
-                Ok(()) => {}
-                Err(why) => {
-                    println!("Saving task error {}", why);
-                }
+    appstate.db.remove_tasks(query.as_ref().unwrap().username.clone()).await.unwrap();
+    for element in result {
+        match appstate
+            .db
+            .add_category(Query(query.as_ref().unwrap()).username.clone(), element)
+            .await
+        {
+            Ok(()) => {}
+            Err(why) => {
+                println!("Saving task error {}", why);
             }
         }
-        return Ok(());
-    } else {
-        println!("Token expired");
-        return Err((StatusCode::UNAUTHORIZED, "Token error".into()));
     }
+    return Ok(());
 }
