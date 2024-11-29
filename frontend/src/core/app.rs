@@ -9,7 +9,7 @@ use tokio::runtime::Runtime;
 
 use crate::core::network::{get_request, post_request_json};
 
-use super::{network::{LoginData, RegData}, task_handler::{Category, TaskStatus}};
+use super::task_handler::{Category, TaskStatus};
 
 
 
@@ -33,11 +33,11 @@ pub struct MyApp {
 
 impl Default for MyApp {
     fn default() -> Self {
-        let app = MyApp {categories: vec![], can_exit: false, exit_window: false, 
+        MyApp {categories: vec![], can_exit: false, exit_window: false, 
             input_text: String::new(), category_input: String::new(), current_user: None,
             token: String::new(), login : String::new(), password: String::new(), 
-            blogin: true, rt: Runtime::new().unwrap(), email: String::new(), comment_input: String::new(), prev_check: Local::now() };
-        app
+            blogin: true, rt: Runtime::new().unwrap(), email: String::new(), comment_input: String::new(), prev_check: Local::now() }
+        
     }
 }
 
@@ -57,9 +57,8 @@ impl eframe::App for MyApp {
         let mut headers = HeaderMap::new();
         headers.insert("Content-Type", HeaderValue::from_str("application/json").unwrap());
         headers.insert("Authentication", HeaderValue::from_str(&self.token).unwrap());
-        
-        println!("Categories left {}", self.categories.len());
-        match self.rt.block_on(post_request_json(url, query_params, headers, serde_json::to_string_pretty(&self.categories).unwrap())) {
+      
+        match self.rt.block_on(post_request_json(url, query_params, headers, serde_json::to_string_pretty(&self.categories).unwrap())) { // Saving everything on exit
             Ok(_txt) => {
                 
             }
@@ -135,116 +134,145 @@ impl eframe::App for MyApp {
 impl MyApp {
     
     pub fn display_tasks(&mut self, ui: &mut Ui) {
-       
         let mut tasks_to_remove = Vec::new();
         let mut comments_to_add = Vec::new();
-        let mut task_new_name : (String, usize) = (String::new(), 0);
-        let mut category_to_remove : Option<usize> = None;
-
-        egui::ScrollArea::new([false, true]).show(ui, |ui| {
-            for (idx_category, category) in self.categories.iter_mut().enumerate() {
-
-                ui.horizontal(|ui| {
-                    ui.label(make_rich_text(&category.name, 20.0.into()));
-                    ui.add_space(15.0);
-                    let rem = ui.button("Remove category");
-                    if rem.clicked() {
-                        category_to_remove = idx_category.into();
-                    }
-                });
-                    
-                ui.horizontal(|ui: &mut Ui| {
-                    ui.text_edit_singleline(&mut self.input_text);
-                    if ui.button("➕ Add Task").clicked() && !self.input_text.is_empty() {
+        let mut task_new_name: (String, usize) = (String::new(), 0);
+        let mut category_to_remove: Option<usize> = None; // Defer removals and etc
     
-                        task_new_name.0 = self.input_text.clone();
-                        task_new_name.1 = idx_category;
-
-                        self.input_text.clear(); 
-                    }
-                });
-
-                let len_cat = category.tasks.len();
-
-
-                for (idx_task, task) in category.tasks.iter_mut().enumerate() {
-                    if idx_task < len_cat {
+        // Start a scrollable area
+        egui::ScrollArea::new([false, true]).show(ui, |ui| {
+            ui.vertical_centered(|ui| {
+                // Iterate over categories
+                ui.style_mut().spacing.item_spacing = [10.0, 30.0].into();
+                for (idx_category, category) in self.categories.iter_mut().enumerate() {
+                    // Category Card
+                    ui.group(|ui| {
+                        ui.style_mut().spacing.item_spacing = [10.0, 5.0].into(); // Tight spacing
+    
+                        // Header with category name and remove button
                         ui.horizontal(|ui| {
-                            ui.add_space(30.0);
-                            let text = RichText::new(&task.name)
-                                .size(16.0)
-                                .color(Color32::from_rgb(200, 200, 200));
-                            ui.label(text);
-
-                            let prev_status = task.status.clone();
-                            ComboBox::from_id_salt(10 * idx_category + idx_task + 10)
-                                .selected_text(task.status.to_string())
-                                .show_ui(ui, |ui| {
-                                    ui.selectable_value(&mut task.status, TaskStatus::Completed, "Completed");
-                                    ui.selectable_value(&mut task.status, TaskStatus::InProgress, "In Progress");
-                                    ui.selectable_value(&mut task.status, TaskStatus::NotCompleted, "Not Completed");
-                                    if prev_status != task.status.clone() {
-                                        // Handle status change if needed
-                                    }
-                                });
-
-                            if ui.button("❌").clicked() {
-                                tasks_to_remove.push((idx_category, idx_task));
+                            ui.label(make_rich_text(&category.name, 26.0.into()).color(Color32::from_rgb(160, 160, 160)));
+                            ui.add_space(10.0);
+                            let rem = ui.button("❌ Remove Category");
+                            if rem.clicked() {
+                                category_to_remove = Some(idx_category);
                             }
                         });
-
-                        egui::CollapsingHeader::new("Comments")
-                            .id_salt(100 * idx_category + idx_task + 1000)
-                            .default_open(false)
-                            .show(ui, |ui| {
-                                ui.add_space(10.0);
-                                for comment in &task.comments {
+    
+                        ui.add_space(15.0); // Space before tasks
+    
+                        // Task Input Section
+                        ui.horizontal(|ui| {
+                            ui.text_edit_singleline(&mut self.input_text);
+                            if ui.button("➕ Add Task").clicked() && !self.input_text.is_empty() {
+                                task_new_name.0 = self.input_text.clone();
+                                task_new_name.1 = idx_category;
+                                self.input_text.clear();
+                            }
+                        });
+    
+                        ui.add_space(15.0); // Space before tasks list
+    
+                        // Task List (Inside a box for better visual separation)
+                        ui.group(|ui| {
+                            ui.add_space(10.0); // Spacing for the box
+    
+                            for (idx_task, task) in category.tasks.iter_mut().enumerate() {
+                                ui.group(|ui| {
+                                    // Task Card Style
+                                    ui.style_mut().spacing.item_spacing = [15.0, 5.0].into(); // Space between elements inside the task
+    
+                                    // Task Row (Text and Status)
                                     ui.horizontal(|ui| {
-                                        ui.label(comment.text.clone());
-                                        ui.add_space(15.0);
-                                        let time_text = if comment.created_at.contains(".") {
-                                            &comment.created_at[..comment.created_at.rfind(".").unwrap()]
-                                        } else {
-                                            &comment.created_at[..comment.created_at.rfind(" ").unwrap()]
-                                        };
-                                        ui.label(make_rich_text(time_text, 10.0.into()));
+                                        ui.add_space(20.0); // Indentation for better visual hierarchy
+                                        let text = RichText::new(&task.name)
+                                            .size(18.0)
+                                            .color(Color32::from_rgb(70, 70, 70)); // Task name color
+    
+                                        ui.label(text);
+    
+                                        // ComboBox for task status
+                                        let prev_status = task.status.clone();
+                                        ComboBox::from_id_salt(format!("category_{}_task_{}_combo", idx_category, idx_task))
+                                            .selected_text(task.status.to_string())
+                                            .show_ui(ui, |ui| {
+                                                ui.selectable_value(&mut task.status, TaskStatus::Completed, "Completed");
+                                                ui.selectable_value(&mut task.status, TaskStatus::InProgress, "In Progress");
+                                                ui.selectable_value(&mut task.status, TaskStatus::NotCompleted, "Not Completed");
+                                            });
+                                        
+                                        // Task Remove Button
+                                        if ui.button("❌").clicked() {
+                                            tasks_to_remove.push((idx_category, idx_task));
+                                        }
                                     });
-                                }
+    
+                                    // Comments Section
+                                    egui::CollapsingHeader::new("Comments").id_salt(10 * idx_category + idx_task + 100)
+                                    .default_open(false) // Set the default open/close state (false means collapsed initially)
+                                    .show(ui, |ui| {
+                                        // Iterate through the comments and display each one
+                                        for comment in &task.comments {
+                                            ui.horizontal(|ui| {
+                                                ui.label(make_rich_text(&comment.text, 14.0.into()));
+                                                ui.add_space(10.0); // Space between text and timestamp
 
-                                ui.horizontal(|ui| {
-                                    ui.text_edit_singleline(&mut self.comment_input);
-                                    if ui.button("Add comment").clicked() {
-                                        comments_to_add.push((idx_category, idx_task, self.comment_input.clone()));
-                                        self.comment_input.clear();
-                                    }
+                                                // Extract and format the comment creation time
+                                                let time_text = if comment.created_at.contains(".") {
+                                                    &comment.created_at[..comment.created_at.rfind(".").unwrap()]
+                                                } else {
+                                                    &comment.created_at[..comment.created_at.rfind(" ").unwrap()]
+                                                };
+                                                // Display the timestamp in smaller text
+                                                ui.label(make_rich_text(time_text, 12.0.into()).color(Color32::from_gray(150)));
+                                            });
+                                        }
+
+                                        // Comment Input Field
+                                        ui.horizontal(|ui| {
+                                            ui.text_edit_singleline(&mut self.comment_input); // Input for new comment
+
+                                            // Button to add the comment
+                                            if ui.button("💬 Add Comment").clicked() {
+                                                comments_to_add.push((idx_category, idx_task, self.comment_input.clone())); // Add comment
+                                                self.comment_input.clear(); // Clear input after adding
+                                            }
+                                        });
+                                    });
+    
+                                    ui.add_space(10.0); // Space after each task
                                 });
-                            });
-
-                        ui.separator();
-                    }
+                            }
+                        });
+    
+                        ui.add_space(15.0); // Space after tasks box
+                    });
                 }
-            }
+            });
         });
-
+    
         // Perform the deferred actions
         for (idx_category, idx_task) in tasks_to_remove {
             self.remove_task(idx_task, idx_category);
         }
-
+    
         for (idx_category, idx_task, cum) in comments_to_add {
             self.add_comment(idx_task, idx_category, cum);
         }
+    
         if !task_new_name.0.is_empty() {
             self.add_task(task_new_name.0, task_new_name.1);
         }
+    
         if let Some(idx) = category_to_remove {
             if self.categories[idx].tasks.is_empty() {
                 self.categories.remove(idx);
                 self.categories.shrink_to_fit();
             }
-            
-        } 
+        }
     }
+    
+    
     pub fn confirm_exit_win(&mut self, ui : &mut Ui, ctx: &eframe::egui::Context) {
         if self.exit_window {
             egui::Window::new("Confirm exit")

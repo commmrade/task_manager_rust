@@ -5,18 +5,6 @@ use serde::{Deserialize, Serialize};
 
 
 
-#[derive(Deserialize, Serialize)]
-pub struct LoginData {
-    pub name: String,
-    pub password: String
-}
-#[derive(Deserialize, Serialize)]
-pub struct RegData {
-    pub name: String,
-    pub password: String,
-    pub email : String
-}
-
 
 
 pub async fn get_request(url : &str, query : &HashMap<String, String>, headers : HeaderMap) -> Result<String, Box<dyn std::error::Error>> {

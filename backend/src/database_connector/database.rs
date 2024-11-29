@@ -136,13 +136,12 @@ impl Db {
                 cats.entry(category_row.get::<String, _>(1))
                     .or_insert_with(Vec::new); // Insert empty vec
 
-                if let Ok(name) = category_row.try_get::<String, _>(3) { // If task isn't NULL
+                if let Ok(name) = category_row.try_get::<String, _>(3) { // If task isn't NULL fill info
                     cats.get_mut(&category_row.get::<String, _>(1)).unwrap().push(Task {
                         name: category_row.get(3),
                         status: TaskStatus::from_str(category_row.get(4)).unwrap(),
                         comments: vec![],
                     });
-                    println!("task id {}", category_row.get::<i32, _>(2));
                     let comms = match self.fetch_comments(category_row.get(2)).await {
                         Ok(vec) => vec,
                         Err(why) => {
@@ -198,60 +197,28 @@ impl Db {
                 .category_exists(username.clone(), category.name.clone())
                 .await?;
 
-            if let Some(category_id) = category_obj {
-                sqlx::query("INSERT INTO categories (user_id, title) VALUES (?, ?)")
-                    .bind(user_id)
-                    .bind(category.name.clone())
-                    .execute(&self.pool)
-                    .await?;
-               
-                let row =
-                    sqlx::query("SELECT id FROM categories WHERE (user_id = ? AND title = ?)")
-                        .bind(user_id)
-                        .bind(category.name.clone())
-                        .fetch_one(&self.pool)
-                        .await?;
-              
-                for task in category.tasks {
-                    sqlx::query("INSERT INTO tasks (user_id, title, status, category_id) VALUES (?, ?, ?, ?)")
-                    .bind(user_id)
-                    .bind(task.name.clone())
-                    .bind(task.status.to_string())
-                    .bind(row.get::<i32, _>(0))
-                    .execute(&self.pool).await?;
+            sqlx::query("INSERT INTO categories (user_id, title) VALUES (?, ?)")
+            .bind(user_id)
+            .bind(category.name.clone()).execute(&self.pool).await?;
+            
 
-                    for comm in task.comments {
-                        self.add_comment(username.clone(), task.name.clone(), comm.text)
-                            .await
-                            .unwrap();
-                    }
-                }
-                
-                return Ok(());
-            } else {
-                sqlx::query("INSERT INTO categories (user_id, title) VALUES (?, ?)")
+            let row = sqlx::query("SELECT id FROM categories WHERE (user_id = ? AND title = ?)")
+            .bind(user_id)
+            .bind(category.name.clone()).fetch_one(&self.pool).await?;
+
+            
+            for task in category.tasks {
+                sqlx::query("INSERT INTO tasks (user_id, title, status, category_id) VALUES (?, ?, ?, ?)")
                 .bind(user_id)
-                .bind(category.name.clone()).execute(&self.pool).await?;
+                .bind(task.name.clone())
+                .bind(task.status.to_string())
+                .bind(row.get::<i32, _>(0))
+                .execute(&self.pool).await?;
                 
 
-                let row = sqlx::query("SELECT id FROM categories WHERE (user_id = ? AND title = ?)")
-                .bind(user_id)
-                .bind(category.name.clone()).fetch_one(&self.pool).await?;
-
-                
-                for task in category.tasks {
-                    sqlx::query("INSERT INTO tasks (user_id, title, status, category_id) VALUES (?, ?, ?, ?)")
-                    .bind(user_id)
-                    .bind(task.name.clone())
-                    .bind(task.status.to_string())
-                    .bind(row.get::<i32, _>(0))
-                    .execute(&self.pool).await?;
-                    
-
-                    for comm in task.comments {
-                        self.add_comment(username.clone(), task.name.clone(), comm.text).await.unwrap();
-                    }   
-                }
+                for comm in task.comments {
+                    self.add_comment(username.clone(), task.name.clone(), comm.text).await.unwrap();
+                }   
             }
         }
         
