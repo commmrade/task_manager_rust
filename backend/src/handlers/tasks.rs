@@ -1,6 +1,6 @@
-use std::{str::FromStr, sync::Arc};
+use std::{convert::Infallible, str::FromStr, sync::Arc};
 
-use axum::{extract::{rejection::QueryRejection, Query, State}, http::{HeaderMap, StatusCode}, Json};
+use axum::{extract::{rejection::QueryRejection, Query, Request, State}, http::{HeaderMap, StatusCode}, response::Response, Json};
 use serde::{Deserialize, Serialize};
 
 
@@ -99,6 +99,7 @@ pub async fn post_tasks(
         headers["Authentication"].to_str().unwrap_or(""),
         &query.as_ref().unwrap().username,
     ) {
+        appstate.db.remove_tasks(query.as_ref().unwrap().username.clone()).await.unwrap();
         for element in result {
             match appstate
                 .db

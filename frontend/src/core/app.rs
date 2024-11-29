@@ -161,6 +161,7 @@ impl eframe::App for MyApp {
         headers.insert("Content-Type", HeaderValue::from_str("application/json").unwrap());
         headers.insert("Authentication", HeaderValue::from_str(&self.token).unwrap());
         
+        println!("Categories left {}", self.categories.len());
         match self.rt.block_on(post_request_json(url, query_params, headers, serde_json::to_string_pretty(&self.categories).unwrap())) {
             Ok(_txt) => {
                 
@@ -368,6 +369,8 @@ impl MyApp {
                 });
 
                 let len_cat = category.tasks.len();
+
+
                 for (idx_task, task) in category.tasks.iter_mut().enumerate() {
                     if idx_task < len_cat {
                         ui.horizontal(|ui| {

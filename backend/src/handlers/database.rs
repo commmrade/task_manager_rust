@@ -163,7 +163,22 @@ impl Db {
         }
         return Err(sqlx::Error::AnyDriverError("User does not exist".into()));
     }
+    pub async fn remove_tasks(&self, username : String) -> Result<(), sqlx::Error> {
+        let user = self.user_exists(username).await?;
 
+        if let Some(user_id) = user {
+            sqlx::query("DELETE FROM tasks WHERE user_id = ?")
+            .bind(user_id)
+            .execute(&self.pool)
+            .await?;
+            
+            sqlx::query("DELETE FROM categories WHERE user_id = ?")
+            .bind(user_id)
+            .execute(&self.pool)
+            .await?;
+        }
+        Ok(())
+    }
     pub async fn add_category(
         &self,
         username: String,
@@ -177,16 +192,6 @@ impl Db {
                 .await?;
 
             if let Some(category_id) = category_obj {
-                sqlx::query("DELETE FROM tasks WHERE user_id = ?")
-                    .bind(user_id)
-                    .execute(&self.pool)
-                    .await?;
-                println!("here1");
-                sqlx::query("DELETE FROM categories WHERE user_id = ?")
-                    .bind(user_id)
-                    .execute(&self.pool)
-                    .await?;
-                println!("here2");
                 sqlx::query("INSERT INTO categories (user_id, title) VALUES (?, ?)")
                     .bind(user_id)
                     .bind(category.name.clone())
@@ -220,7 +225,7 @@ impl Db {
                 sqlx::query("INSERT INTO categories (user_id, title) VALUES (?, ?)")
                 .bind(user_id)
                 .bind(category.name.clone()).execute(&self.pool).await?;
-                
+                println!("inserted cat");
 
 
                 let row = sqlx::query("SELECT id FROM categories WHERE (user_id = ? AND title = ?)")
